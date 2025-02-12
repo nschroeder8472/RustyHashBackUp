@@ -3,6 +3,7 @@ use clap::{arg, Parser};
 use chrono::{NaiveDateTime, Utc};
 use std::io::{BufReader, Error, Read};
 use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
 use walkdir::WalkDir;
@@ -10,8 +11,36 @@ use walkdir::WalkDir;
 fn main() {
     let args = Cli::parse();
     let max_mebibytes = args.number_of_mebibytes * 1048576;
+
+    let source_files = get_files_in_path(args.source_path);
+    let destination_files = get_files_in_path(args.destination_path);
+
+    if source_files.is_empty() {
+        println!("No files found");
+        return;
+    }
+
+    let source_hash_data = hash_files(source_files, max_mebibytes);
+    let mut destination_hash_data= Vec::new();
+    if !destination_files.is_empty() {
+        destination_hash_data = hash_files(destination_files, max_mebibytes);
+    }
+
+    if source_hash_data.len() != destination_hash_data.len() {
+        println!("Source and destination hash data do not match");
+    } else {
+        for i in 0..source_hash_data.len() {
+            let hash_compare = source_hash_data[i].hash == destination_hash_data[i].hash;
+            println!("Hashes are equal: {}", hash_compare)
+        }
+    }
+
+    println!("Done");
+}
+
+fn get_files_in_path(top_directory: String) -> Vec<PathBuf> {
     let mut files= Vec::new();
-    for entry in WalkDir::new(args.input_path)
+    for entry in WalkDir::new(top_directory)
         .follow_links(true)
         .contents_first(true)
         .into_iter()
@@ -21,13 +50,11 @@ fn main() {
         }
         files.push(entry.path().to_path_buf());
     };
+    files
+}
 
-    if files.is_empty() {
-        println!("No files found");
-        return;
-    }
-
-    let mut result = Arc::new(Mutex::new(Vec::new()));
+fn hash_files(files: Vec<PathBuf>, max_mebibytes: usize) -> Vec<FileHash> {
+    let result = Arc::new(Mutex::new(Vec::new()));
 
     files.par_iter().for_each(|file| {
         let file_path = file.to_str().unwrap();
@@ -46,10 +73,8 @@ fn main() {
             Err(_) => {panic!("Failed to hash file");}
         }
     });
-    for hash in result.lock().unwrap().iter() {
-        println!("path:{}, hash:{}, date_time:{}", hash.relative_path, hash.hash, hash.date);
-    }
-    println!("Done");
+
+    Arc::try_unwrap(result).unwrap().into_inner().unwrap()
 }
 
 fn hasher<R: Read>(mut reader: BufReader<R>, max_mebibytes: usize) -> Result<String, Error> {
@@ -75,16 +100,17 @@ fn hasher<R: Read>(mut reader: BufReader<R>, max_mebibytes: usize) -> Result<Str
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short = 'i', long = "input")]
-    input_path: String,
-    #[arg(short = 'r', long = "recursive", default_value = "true")]
-    recursive: bool,
-    #[arg(short = 'a', long = "all")]
-    recalculate_all: bool,
-    #[arg(short = 's', long = "size", default_value = "1")]
+    #[arg(short = 's', long = "source")]
+    source_path: String,
+    #[arg(short = 'd', long = "destination")]
+    destination_path: String,
+    #[arg(short = 'r', long = "relative_path", default_value = "")]
+    relative_path: String,
+    #[arg(short = 'm', long = "max_size", default_value = "1")]
     number_of_mebibytes: usize
 }
 
+#[derive(Debug)]
 struct FileHash {
     relative_path: String,
     hash: String,
