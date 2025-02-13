@@ -57,14 +57,16 @@ fn hash_files(files: Vec<PathBuf>, max_mebibytes: usize) -> Vec<FileHash> {
     let result = Arc::new(Mutex::new(Vec::new()));
 
     files.par_iter().for_each(|file| {
-        let file_path = file.to_str().unwrap();
-        println!("Hashing {}", file_path);
+        let file_path = file.parent().unwrap().to_str().unwrap();
+        let file_name = file.file_name().unwrap().to_str().unwrap();
+        println!("Hashing {}", file_name);
         let reader = BufReader::new(fs::File::open(file).unwrap());
         let hash = hasher(reader, max_mebibytes);
         match hash {
             Ok(hash) => {
                 let file_hash = FileHash {
-                    relative_path: String::from(file_path),
+                    file_name: String::from(file_name),
+                    file_path: String::from(file_path),
                     hash,
                     date: Utc::now().naive_utc()
                 };
@@ -112,7 +114,8 @@ struct Cli {
 
 #[derive(Debug)]
 struct FileHash {
-    relative_path: String,
+    file_name: String,
+    file_path: String,
     hash: String,
     date: NaiveDateTime
 }
