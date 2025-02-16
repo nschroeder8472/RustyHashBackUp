@@ -3,27 +3,24 @@ use clap::{arg, Parser};
 use std::io::{BufReader, Error, Read};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-use rayon::prelude::*;
-use walkdir::WalkDir;
+use walkdir::{WalkDir};
 use rusqlite::{Connection, Result};
+use serde::Deserialize;
 
 fn main() {
     let args = Cli::parse();
-    let db_conn = Connection::open(args.database_file).unwrap();
-    setup_database(&db_conn);
-
-    let max_mebibytes = args.number_of_mebibytes * 1048576;
-
-    let source_files = get_files_in_path(args.source_path);
+    let config: Config = setup_config(args.config_file);
+    let db_conn = setup_database(config.database_file);
+    let max_bytes = config.max_mebibytes_for_hash * 1048576;
+    let source_files = get_files_in_path(config.backup_sources);
 
     if source_files.is_empty() {
         println!("No files found");
         return;
     }
 
-    let source_hash_data = hash_files(source_files, max_mebibytes);
+    let source_hash_data = hash_files(source_files, max_bytes);
     for file_hash in source_hash_data {
         insert_source_row(&db_conn, file_hash);
     }
@@ -31,7 +28,25 @@ fn main() {
     println!("Done");
 }
 
-fn setup_database(db_conn: &Connection) {
+fn setup_config(config_file: String) -> Config {
+    let config_file = PathBuf::from(config_file);
+    let config_str = match fs::read_to_string(config_file) {
+        Ok(file) => {file}
+        Err(_) => {panic!("Failed to read config file");}
+    };
+
+    match serde_json::from_str(&config_str) {
+        Ok(config) => config,
+        Err(_) => {panic!("Failed to parse config file");}
+    }
+}
+
+fn setup_database(string: String) -> Connection {
+    let db_conn = match Connection::open(string) {
+        Ok(conn) => {conn}
+        Err(error) => {panic!("Failed to open or create database file {}", error);}
+    };
+
     println!("Setting up database");
     let setup_queries =
     "BEGIN;
@@ -73,6 +88,7 @@ fn setup_database(db_conn: &Connection) {
 
     db_conn.execute_batch(setup_queries).expect("Failed to create database");
     println!("Database setup successfully");
+    db_conn
 }
 
 fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
@@ -92,34 +108,32 @@ fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
     }
 }
 
-// fn get_existing_backup(conn: &Connection, dir: PathBuf) -> Vec<FileHash> {
-//
-// }
-
-fn get_files_in_path(top_directory: String) -> Vec<PathBuf> {
+fn get_files_in_path(backup_sources: Vec<BackupSource>) -> Vec<PathBuf> {
     let mut files= Vec::new();
-    for entry in WalkDir::new(top_directory)
-        .follow_links(true)
-        .contents_first(true)
-        .into_iter()
-        .filter_map(Result::ok) {
-        if entry.file_type().is_dir() {
-            continue;
-        }
-        files.push(entry.path().to_path_buf());
-    };
+    for backup_source in backup_sources {
+        for entry in WalkDir::new(backup_source.parent_directory)
+            .max_depth(backup_source.max_depth)
+            .follow_links(true)
+            .contents_first(true)
+            .into_iter()
+            .filter_map(Result::ok) {
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            files.push(entry.path().to_path_buf());
+        };
+    }
     files
 }
 
-fn hash_files(files: Vec<PathBuf>, max_mebibytes: usize) -> Vec<FileHash> {
-    let result = Arc::new(Mutex::new(Vec::new()));
-
-    files.par_iter().for_each(|file| {
+fn hash_files(files: Vec<PathBuf>, max_bytes: usize) -> Vec<FileHash> {
+    let mut result = Vec::new();
+    files.iter().for_each(|file| {
         let file_path = file.parent().unwrap().to_str().unwrap();
         let file_name = file.file_name().unwrap().to_str().unwrap();
         println!("Hashing {}", file_name);
         let reader = BufReader::new(fs::File::open(file).unwrap());
-        match hasher(reader, max_mebibytes) {
+        match hasher(reader, max_bytes) {
             Ok(hash) => {
                 let file_hash = FileHash {
                     file_name: String::from(file_name),
@@ -127,16 +141,16 @@ fn hash_files(files: Vec<PathBuf>, max_mebibytes: usize) -> Vec<FileHash> {
                     hash,
                     date: file.metadata().unwrap().modified().unwrap().duration_since(UNIX_EPOCH).expect("File date is older than Epoch 0")
                 };
-                result.lock().unwrap().push(file_hash);
+                result.push(file_hash);
             }
             Err(_) => {panic!("Failed to hash file");}
         }
     });
 
-    Arc::try_unwrap(result).unwrap().into_inner().unwrap()
+    result
 }
 
-fn hasher<R: Read>(mut reader: BufReader<R>, max_mebibytes: usize) -> Result<String, Error> {
+fn hasher<R: Read>(mut reader: BufReader<R>, max_bytes: usize) -> Result<String, Error> {
     let mut hasher = Blake2b512::new();
     let mut buffer = [0; 8192];
     let mut bytes_read = 0;
@@ -148,7 +162,7 @@ fn hasher<R: Read>(mut reader: BufReader<R>, max_mebibytes: usize) -> Result<Str
         }
         bytes_read += count;
         hasher.update(&buffer[..count]);
-        if bytes_read > max_mebibytes {
+        if bytes_read > max_bytes {
             break;
         }
     }
@@ -159,16 +173,28 @@ fn hasher<R: Read>(mut reader: BufReader<R>, max_mebibytes: usize) -> Result<Str
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short = 's', long = "source")]
-    source_path: String,
-    #[arg(short = 'd', long = "destination")]
-    destination_path: String,
-    #[arg(short = 'r', long = "relative_path", default_value = "")]
-    relative_path: String,
-    #[arg(short = 'm', long = "max_size", default_value = "1")]
-    number_of_mebibytes: usize,
-    #[arg(short = 'b', long = "database_file", default_value = "/data/backup.db")]
-    database_file: String
+    #[arg(short = 'c', long = "config", default_value = "/data/config.json")]
+    config_file: String
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    database_file: String,
+    max_mebibytes_for_hash: usize,
+    backup_sources: Vec<BackupSource>,
+    backup_destinations: Vec<String>
+}
+
+#[derive(Debug, Deserialize)]
+struct BackupSource {
+    parent_directory: String,
+    #[serde(default = "usize_max")]
+    max_depth: usize
+
+}
+
+fn usize_max () -> usize {
+    usize::MAX
 }
 
 #[derive(Debug)]
