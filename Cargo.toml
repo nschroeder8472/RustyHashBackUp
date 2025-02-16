@@ -11,7 +11,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
-chrono = "0.4.39"
 blake2 = "0.11.0-pre.4"
 rayon = "1.10.0"
 walkdir = "2.5.0"
+rusqlite = { version = "0.33.0", features = ["bundled"] }

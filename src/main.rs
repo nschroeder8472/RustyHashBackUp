@@ -1,19 +1,22 @@
 use blake2::{Blake2b512, Digest};
 use clap::{arg, Parser};
-use chrono::{NaiveDateTime, Utc};
 use std::io::{BufReader, Error, Read};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, UNIX_EPOCH};
 use rayon::prelude::*;
 use walkdir::WalkDir;
+use rusqlite::{Connection, Result};
 
 fn main() {
     let args = Cli::parse();
+    let db_conn = Connection::open(args.database_file).unwrap();
+    setup_database(&db_conn);
+
     let max_mebibytes = args.number_of_mebibytes * 1048576;
 
     let source_files = get_files_in_path(args.source_path);
-    let destination_files = get_files_in_path(args.destination_path);
 
     if source_files.is_empty() {
         println!("No files found");
@@ -21,22 +24,77 @@ fn main() {
     }
 
     let source_hash_data = hash_files(source_files, max_mebibytes);
-    let mut destination_hash_data= Vec::new();
-    if !destination_files.is_empty() {
-        destination_hash_data = hash_files(destination_files, max_mebibytes);
-    }
-
-    if source_hash_data.len() != destination_hash_data.len() {
-        println!("Source and destination hash data do not match");
-    } else {
-        for i in 0..source_hash_data.len() {
-            let hash_compare = source_hash_data[i].hash == destination_hash_data[i].hash;
-            println!("Hashes are equal: {}", hash_compare)
-        }
+    for file_hash in source_hash_data {
+        insert_source_row(&db_conn, file_hash);
     }
 
     println!("Done");
 }
+
+fn setup_database(db_conn: &Connection) {
+    println!("Setting up database");
+    let setup_queries =
+    "BEGIN;
+
+    CREATE TABLE IF NOT EXISTS Source_Files(
+        ID            integer not null
+            constraint Source_Files_ID
+                primary key autoincrement,
+        File_Name     TEXT    not null,
+        File_Path     TEXT    not null,
+        Hash          TEXT,
+        Last_Modified integer,
+        constraint Source_Files_File_Key
+            unique (File_Name, File_Path));
+
+    CREATE INDEX IF NOT EXISTS Source_Files_File_Name_index
+            on Source_Files (File_Name);
+
+    CREATE TABLE IF NOT EXISTS Backup_Files(
+        ID            integer not null
+            constraint Backup_Files_ID_pk
+                primary key autoincrement,
+        Source_ID     integer not null
+            constraint Backup_Files_Backup_Files_ID_fk
+                references Backup_Files,
+        File_Name     TEXT    not null,
+        File_Path     TEXT    not null,
+        Last_Modified integer,
+        constraint Backup_Files_pk
+            unique (File_Name, File_Path));
+
+    CREATE INDEX IF NOT EXISTS Backup_Files_File_Name_File_Path_index
+            on Backup_Files (File_Name, File_Path);
+
+    CREATE INDEX IF NOT EXISTS Backup_Files_Source_ID_index
+            on Backup_Files (Source_ID);
+
+    COMMIT;";
+
+    db_conn.execute_batch(setup_queries).expect("Failed to create database");
+    println!("Database setup successfully");
+}
+
+fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
+    println!("Inserting source row for file: {}\\{}", source_row.file_path, source_row.file_name);
+    match db_conn.execute(
+        "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
+                VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT (File_Name, File_Path) DO UPDATE SET
+                File_Name=excluded.File_name,
+                File_Path=excluded.File_path,
+                Hash=excluded.Hash,
+                Last_Modified=excluded.Last_Modified;",
+        (source_row.file_name, source_row.file_path, source_row.hash, source_row.date.as_secs())
+    ) {
+        Ok(_) => (),
+        Err(error) => {println!("Error inserting new source row: {:?}", error); }
+    }
+}
+
+// fn get_existing_backup(conn: &Connection, dir: PathBuf) -> Vec<FileHash> {
+//
+// }
 
 fn get_files_in_path(top_directory: String) -> Vec<PathBuf> {
     let mut files= Vec::new();
@@ -61,14 +119,13 @@ fn hash_files(files: Vec<PathBuf>, max_mebibytes: usize) -> Vec<FileHash> {
         let file_name = file.file_name().unwrap().to_str().unwrap();
         println!("Hashing {}", file_name);
         let reader = BufReader::new(fs::File::open(file).unwrap());
-        let hash = hasher(reader, max_mebibytes);
-        match hash {
+        match hasher(reader, max_mebibytes) {
             Ok(hash) => {
                 let file_hash = FileHash {
                     file_name: String::from(file_name),
                     file_path: String::from(file_path),
                     hash,
-                    date: Utc::now().naive_utc()
+                    date: file.metadata().unwrap().modified().unwrap().duration_since(UNIX_EPOCH).expect("File date is older than Epoch 0")
                 };
                 result.lock().unwrap().push(file_hash);
             }
@@ -109,7 +166,9 @@ struct Cli {
     #[arg(short = 'r', long = "relative_path", default_value = "")]
     relative_path: String,
     #[arg(short = 'm', long = "max_size", default_value = "1")]
-    number_of_mebibytes: usize
+    number_of_mebibytes: usize,
+    #[arg(short = 'b', long = "database_file", default_value = "/data/backup.db")]
+    database_file: String
 }
 
 #[derive(Debug)]
@@ -117,5 +176,5 @@ struct FileHash {
     file_name: String,
     file_path: String,
     hash: String,
-    date: NaiveDateTime
+    date: Duration
 }
