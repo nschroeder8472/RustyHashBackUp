@@ -1,0 +1,12 @@
+{
+    "database_file": "/data/backup.db",
+    "max_mebibytes_for_hash": 1,
+    "backup_sources": [
+        {
+            "parent_directory": "/source"
+        }
+    ],
+    "backup_destinations": [
+        "/destination"
+    ]
+}

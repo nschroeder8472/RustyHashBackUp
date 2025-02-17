@@ -92,7 +92,7 @@ fn setup_database(string: String) -> Connection {
 }
 
 fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
-    println!("Inserting source row for file: {}\\{}", source_row.file_path, source_row.file_name);
+    println!("Inserting source row for file: {} {}", source_row.file_path, source_row.file_name);
     match db_conn.execute(
         "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
                 VALUES (?1, ?2, ?3, ?4)
