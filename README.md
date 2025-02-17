@@ -1,1 +1,1 @@
-Command line utility for generating hashes from files
+Utility for creating backup copies of directories using hashes to identify when files have been modified
