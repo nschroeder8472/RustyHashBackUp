@@ -1,5 +1,5 @@
-mod services;
 mod models;
+mod services;
 mod utils;
 
 use crate::models::config::setup_config;
@@ -12,7 +12,7 @@ use services::sqlite::{insert_source_row, setup_database};
 #[derive(Parser)]
 struct Cli {
     #[arg(short = 'c', long = "config", default_value = "/data/config.json")]
-    config_file: String
+    config_file: String,
 }
 
 fn main() {

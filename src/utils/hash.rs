@@ -1,9 +1,9 @@
+use crate::models::file_hash::FileHash;
+use blake2::{Blake2b512, Digest};
 use std::fs;
 use std::io::{BufReader, Error, Read};
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
-use blake2::{Blake2b512, Digest};
-use crate::models::file_hash::FileHash;
 
 pub fn hash_files(files: Vec<PathBuf>, max_bytes: usize) -> Vec<FileHash> {
     let mut result = Vec::new();
@@ -18,11 +18,19 @@ pub fn hash_files(files: Vec<PathBuf>, max_bytes: usize) -> Vec<FileHash> {
                     file_name: String::from(file_name),
                     file_path: String::from(file_path),
                     hash,
-                    date: file.metadata().unwrap().modified().unwrap().duration_since(UNIX_EPOCH).expect("File date is older than Epoch 0")
+                    date: file
+                        .metadata()
+                        .unwrap()
+                        .modified()
+                        .unwrap()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("File date is older than Epoch 0"),
                 };
                 result.push(file_hash);
             }
-            Err(_) => {panic!("Failed to hash file");}
+            Err(_) => {
+                panic!("Failed to hash file");
+            }
         }
     });
 

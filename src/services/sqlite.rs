@@ -1,15 +1,16 @@
-use rusqlite::Connection;
 use crate::models::file_hash::FileHash;
+use rusqlite::Connection;
 
 pub fn setup_database(string: String) -> Connection {
     let db_conn = match Connection::open(string) {
-        Ok(conn) => {conn}
-        Err(error) => {panic!("Failed to open or create database file {}", error);}
+        Ok(conn) => conn,
+        Err(error) => {
+            panic!("Failed to open or create database file {}", error);
+        }
     };
 
     println!("Setting up database");
-    let setup_queries =
-        "BEGIN;
+    let setup_queries = "BEGIN;
 
     CREATE TABLE IF NOT EXISTS Source_Files(
         ID            integer not null
@@ -46,13 +47,18 @@ pub fn setup_database(string: String) -> Connection {
 
     COMMIT;";
 
-    db_conn.execute_batch(setup_queries).expect("Failed to create database");
+    db_conn
+        .execute_batch(setup_queries)
+        .expect("Failed to create database");
     println!("Database setup successfully");
     db_conn
 }
 
 pub fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
-    println!("Inserting source row for file: {} {}", source_row.file_path, source_row.file_name);
+    println!(
+        "Inserting source row for file: {} {}",
+        source_row.file_path, source_row.file_name
+    );
     match db_conn.execute(
         "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
                 VALUES (?1, ?2, ?3, ?4)
@@ -61,9 +67,16 @@ pub fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
                 File_Path=excluded.File_path,
                 Hash=excluded.Hash,
                 Last_Modified=excluded.Last_Modified;",
-        (source_row.file_name, source_row.file_path, source_row.hash, source_row.date.as_secs())
+        (
+            source_row.file_name,
+            source_row.file_path,
+            source_row.hash,
+            source_row.date.as_secs(),
+        ),
     ) {
         Ok(_) => (),
-        Err(error) => {println!("Error inserting new source row: {:?}", error); }
+        Err(error) => {
+            println!("Error inserting new source row: {:?}", error);
+        }
     }
 }
