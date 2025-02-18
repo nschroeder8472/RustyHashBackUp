@@ -1,5 +1,5 @@
 [package]
-name = "LightWeightHashBackup"
+name = "RustyHashBackup"
 version = "0.1.0"
 edition = "2021"
 authors = ["NerfHerder"]

@@ -10,5 +10,5 @@ WORKDIR /usr/src/app
 RUN mkdir /data
 RUN mkdir /source
 RUN mkdir /destination
-COPY --from=builder /usr/src/app/target/release/LightWeightHashBackup ./
-CMD ["./LightWeightHashBackup"]
+COPY --from=builder /usr/src/app/target/release/RustyHashBackup ./
+CMD ["./RustyHashBackup"]

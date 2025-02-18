@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "LightWeightHashBackup"
+name = "RustyHashBackup"
 version = "0.1.0"
 dependencies = [
  "blake2",
