@@ -5,13 +5,11 @@ use std::io::{BufReader, Error, Read};
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
-pub fn hash_files(files: Vec<PathBuf>, max_bytes: usize) -> Vec<FileHash> {
-    let mut result = Vec::new();
-    files.iter().for_each(|file| {
+pub fn hash_file(file: &PathBuf, max_bytes: usize) -> FileHash {
         let file_path = file.parent().unwrap().to_str().unwrap();
         let file_name = file.file_name().unwrap().to_str().unwrap();
         println!("Hashing {}", file_name);
-        let reader = BufReader::new(fs::File::open(file).unwrap());
+        let reader = BufReader::new(fs::File::open(&file).unwrap());
         match hasher(reader, max_bytes) {
             Ok(hash) => {
                 let file_hash = FileHash {
@@ -26,16 +24,13 @@ pub fn hash_files(files: Vec<PathBuf>, max_bytes: usize) -> Vec<FileHash> {
                         .duration_since(UNIX_EPOCH)
                         .expect("File date is older than Epoch 0"),
                 };
-                result.push(file_hash);
+                file_hash
             }
             Err(_) => {
                 panic!("Failed to hash file");
             }
         }
-    });
-
-    result
-}
+    }
 
 fn hasher<R: Read>(mut reader: BufReader<R>, max_bytes: usize) -> rusqlite::Result<String, Error> {
     let mut hasher = Blake2b512::new();

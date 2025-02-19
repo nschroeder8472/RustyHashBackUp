@@ -1,13 +1,13 @@
 mod models;
-mod services;
+mod repo;
 mod utils;
+mod service;
 
 use crate::models::config::setup_config;
 use crate::utils::directory::get_files_in_path;
-use crate::utils::hash::hash_files;
 use clap::{arg, Parser};
 use models::config::Config;
-use services::sqlite::{insert_source_row, setup_database};
+use repo::sqlite::{insert_source_row, setup_database};
 
 #[derive(Parser)]
 struct Cli {

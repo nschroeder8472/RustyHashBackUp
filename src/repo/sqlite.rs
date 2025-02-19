@@ -80,3 +80,5 @@ pub fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
         }
     }
 }
+
+pub fn insert_destination_row(db_conn: &Connection, destination_row: FileHash) {}
