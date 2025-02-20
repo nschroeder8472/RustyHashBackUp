@@ -1,2 +1,3 @@
+pub mod backup_row;
 pub mod config;
-pub mod file_hash;
+pub mod source_row;

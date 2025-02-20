@@ -1,2 +1,2 @@
-pub mod hash;
 pub mod backup;
+pub mod hash;

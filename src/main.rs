@@ -1,13 +1,14 @@
 mod models;
 mod repo;
-mod utils;
 mod service;
+mod utils;
 
 use crate::models::config::setup_config;
+use crate::service::backup::backup_files;
 use crate::utils::directory::get_files_in_path;
 use clap::{arg, Parser};
 use models::config::Config;
-use repo::sqlite::{insert_source_row, setup_database};
+use repo::sqlite::setup_database;
 
 #[derive(Parser)]
 struct Cli {
@@ -27,10 +28,12 @@ fn main() {
         return;
     }
 
-    let source_hash_data = hash_files(source_files, max_bytes);
-    for file_hash in source_hash_data {
-        insert_source_row(&db_conn, file_hash);
-    }
+    backup_files(
+        source_files,
+        config.backup_destinations,
+        max_bytes,
+        &db_conn,
+    );
 
     println!("Done");
 }

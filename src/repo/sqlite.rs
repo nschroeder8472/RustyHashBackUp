@@ -1,5 +1,6 @@
-use crate::models::file_hash::FileHash;
-use rusqlite::Connection;
+use crate::models::backup_row::BackupRow;
+use crate::models::source_row::SourceRow;
+use rusqlite::{Connection, Error};
 
 pub fn setup_database(string: String) -> Connection {
     let db_conn = match Connection::open(string) {
@@ -31,8 +32,8 @@ pub fn setup_database(string: String) -> Connection {
             constraint Backup_Files_ID_pk
                 primary key autoincrement,
         Source_ID     integer not null
-            constraint Backup_Files_Backup_Files_ID_fk
-                references Backup_Files,
+            constraint Backup_Files_Source_Files_ID_fk
+                references Source_Files,
         File_Name     TEXT    not null,
         File_Path     TEXT    not null,
         Last_Modified integer,
@@ -54,7 +55,7 @@ pub fn setup_database(string: String) -> Connection {
     db_conn
 }
 
-pub fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
+pub fn insert_source_row(db_conn: &Connection, source_row: SourceRow) -> Result<i32, Error> {
     println!(
         "Inserting source row for file: {} {}",
         source_row.file_path, source_row.file_name
@@ -68,17 +69,48 @@ pub fn insert_source_row(db_conn: &Connection, source_row: FileHash) {
                 Hash=excluded.Hash,
                 Last_Modified=excluded.Last_Modified;",
         (
-            source_row.file_name,
-            source_row.file_path,
+            &source_row.file_name,
+            &source_row.file_path,
             source_row.hash,
-            source_row.date.as_secs(),
+            source_row.last_modified.as_secs(),
         ),
     ) {
-        Ok(_) => (),
-        Err(error) => {
-            println!("Error inserting new source row: {:?}", error);
-        }
+        Ok(_) => db_conn.query_row(
+            "SELECT ID
+                FROM Source_Files
+                WHERE File_Name=?1
+                    AND File_Path=?2",
+            (source_row.file_name, source_row.file_path),
+            |row| row.get(0),
+        ),
+        Err(e) => Err(e),
     }
 }
 
-pub fn insert_destination_row(db_conn: &Connection, destination_row: FileHash) {}
+pub fn insert_backup_row(db_conn: &Connection, backup_row: BackupRow) {
+    match db_conn.execute(
+        "INSERT INTO Backup_Files (Source_ID, File_Name, File_Path, Last_Modified)
+                VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT (File_Name, File_Path) DO UPDATE SET
+                Source_ID=excluded.Source_ID,
+                File_Name=excluded.File_name,
+                File_Path=excluded.File_path,
+                Last_Modified=excluded.Last_Modified;",
+        (
+            backup_row.source_id,
+            &backup_row.file_name,
+            backup_row.file_path,
+            backup_row.last_modified.as_secs(),
+        ),
+    ) {
+        Ok(_) => {
+            println!("Successfully inserted backup row {}", backup_row.file_name);
+        }
+        Err(e) => {
+            println!(
+                "Failed to insert backup row {}: {}",
+                backup_row.file_name, e
+            );
+        }
+    }
+}
