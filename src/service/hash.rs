@@ -13,6 +13,7 @@ pub fn hash_file(file: &PathBuf, max_bytes: usize) -> SourceRow {
     match hasher(reader, max_bytes) {
         Ok(hash) => {
             let source_row = SourceRow {
+                id: 0,
                 file_name: String::from(file_name),
                 file_path: String::from(file_path),
                 hash,

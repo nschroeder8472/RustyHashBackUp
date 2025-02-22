@@ -3,12 +3,14 @@ mod repo;
 mod service;
 mod utils;
 
-use crate::models::config::setup_config;
+use crate::models::config::{setup_config, BackupSource};
 use crate::service::backup::backup_files;
 use crate::utils::directory::get_files_in_path;
 use clap::{arg, Parser};
 use models::config::Config;
 use repo::sqlite::setup_database;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Cli {
@@ -19,21 +21,40 @@ struct Cli {
 fn main() {
     let args = Cli::parse();
     let config: Config = setup_config(args.config_file);
-    let db_conn = setup_database(config.database_file);
-    let max_bytes = config.max_mebibytes_for_hash * 1048576;
-    let source_files = get_files_in_path(config.backup_sources);
+    let db_conn = setup_database(&config.database_file);
+    let max_bytes = &config.max_mebibytes_for_hash * 1048576;
+    let backup_candidates = get_source_files(&config.backup_sources);
 
-    if source_files.is_empty() {
+    if backup_candidates.is_empty() {
         println!("No files found");
         return;
     }
 
-    backup_files(
-        source_files,
-        config.backup_destinations,
-        max_bytes,
-        &db_conn,
-    );
+    backup_files(backup_candidates, max_bytes, &db_conn, &config);
 
+    //todo: Need to pre-create backup file paths, without the shared relative source dir (unless explicitly specified)
+    // Once paths are created, compare source and backup paths. Check for any changes that may
+    // have happened using database last modified as quick test, if last modified on file =/= dbase
+    // run a hash compare, if the hashes are not equal to the source, then add to possible backup list
+    // if the backup already exists in a destination compare last modified, if backup is newer than database
+    // check the hash against the source, if the hash does not match, log for human review, if it does match
+    // update database. If backup is the same age or older than what is in the database, overwrite
     println!("Done");
+}
+
+fn get_source_files(backup_sources: &Vec<BackupSource>) -> HashMap<PathBuf, Vec<PathBuf>> {
+    let mut result_map = HashMap::<PathBuf, Vec<PathBuf>>::new();
+    backup_sources
+        .iter()
+        .map(|s| {
+            (
+                PathBuf::from(&s.parent_directory),
+                get_files_in_path(&s.parent_directory, &s.max_depth),
+            )
+        })
+        .filter(|(_, v)| !v.is_empty())
+        .for_each(|(path, files)| {
+            result_map.insert(path, files);
+        });
+    result_map
 }

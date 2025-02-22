@@ -1,8 +1,9 @@
 use crate::models::backup_row::BackupRow;
 use crate::models::source_row::SourceRow;
-use rusqlite::{Connection, Error};
+use rusqlite::{Connection, Error, OptionalExtension};
+use std::time::Duration;
 
-pub fn setup_database(string: String) -> Connection {
+pub fn setup_database(string: &String) -> Connection {
     let db_conn = match Connection::open(string) {
         Ok(conn) => conn,
         Err(error) => {
@@ -55,10 +56,35 @@ pub fn setup_database(string: String) -> Connection {
     db_conn
 }
 
-pub fn insert_source_row(db_conn: &Connection, source_row: SourceRow) -> Result<i32, Error> {
+pub fn select_source(
+    db_conn: &Connection,
+    source_file: &String,
+    source_path: &String,
+) -> rusqlite::Result<Option<SourceRow>> {
+    let mut query = db_conn.prepare(
+        "SELECT *
+                FROM Source_Files
+                WHERE File_Name=?1
+                    AND File_Path=?2",
+    )?;
+    let source_row = query
+        .query_row([source_file, source_path], |row| {
+            Ok(SourceRow {
+                id: row.get(0)?,
+                file_name: row.get(1)?,
+                file_path: row.get(2)?,
+                hash: row.get(3)?,
+                last_modified: Duration::from_secs(row.get(4)?),
+            })
+        })
+        .optional();
+    source_row
+}
+
+pub fn insert_source_row(db_conn: &Connection, source_row: &SourceRow) -> Result<i32, Error> {
     println!(
         "Inserting source row for file: {} {}",
-        source_row.file_path, source_row.file_name
+        &source_row.file_path, &source_row.file_name
     );
     match db_conn.execute(
         "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
@@ -71,8 +97,8 @@ pub fn insert_source_row(db_conn: &Connection, source_row: SourceRow) -> Result<
         (
             &source_row.file_name,
             &source_row.file_path,
-            source_row.hash,
-            source_row.last_modified.as_secs(),
+            &source_row.hash,
+            &source_row.last_modified.as_secs(),
         ),
     ) {
         Ok(_) => db_conn.query_row(
@@ -80,11 +106,34 @@ pub fn insert_source_row(db_conn: &Connection, source_row: SourceRow) -> Result<
                 FROM Source_Files
                 WHERE File_Name=?1
                     AND File_Path=?2",
-            (source_row.file_name, source_row.file_path),
+            (&source_row.file_name, &source_row.file_path),
             |row| row.get(0),
         ),
         Err(e) => Err(e),
     }
+}
+
+pub fn update_source_last_modified(db_conn: &Connection, row_id: i32, last_modified: &Duration) {
+    db_conn
+        .execute(
+            "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
+            (last_modified.as_secs(), row_id),
+        )
+        .expect("Failed to update last modified for row");
+}
+
+pub fn update_source_hash(
+    db_conn: &Connection,
+    row_id: i32,
+    hash: &String,
+    last_modified: &Duration,
+) {
+    db_conn
+        .execute(
+            "UPDATE Source_Files SET Hash=?1, Last_Modified=?2 WHERE ID=?3",
+            (hash, last_modified.as_secs(), row_id),
+        )
+        .expect("Failed to update hash for row");
 }
 
 pub fn insert_backup_row(db_conn: &Connection, backup_row: BackupRow) {

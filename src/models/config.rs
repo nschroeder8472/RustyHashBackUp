@@ -8,6 +8,8 @@ pub struct Config {
     pub max_mebibytes_for_hash: usize,
     pub backup_sources: Vec<BackupSource>,
     pub backup_destinations: Vec<String>,
+    pub skip_source_hash_check_if_newer: bool,
+    pub force_overwrite_backup: bool,
 }
 
 #[derive(Debug, Deserialize)]
