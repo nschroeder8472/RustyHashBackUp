@@ -7,11 +7,12 @@ use crate::repo::sqlite::{
     update_source_last_modified,
 };
 use crate::service::hash::hash_file;
+use crate::utils::directory::get_file_last_modified;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
-use std::time::UNIX_EPOCH;
+use std::time::Duration;
 
 pub fn backup_files(
     backup_candidates: HashMap<PathBuf, Vec<PathBuf>>,
@@ -25,16 +26,7 @@ pub fn backup_files(
         for candidate in candidates.1 {
             let filename = candidate.file_name().unwrap().to_str().unwrap().to_string();
             let filepath = candidate.parent().unwrap().to_str().unwrap().to_string();
-            let candidate_last_modified = match candidate
-                .metadata()
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(UNIX_EPOCH)
-            {
-                Ok(d) => d,
-                Err(e) => panic!("SystemTime before UNIX EPOCH!: {:?}", e),
-            };
+            let candidate_last_modified = get_file_last_modified(&candidate);
             let hash;
             let mut source_row;
             let source_row_option = match select_source(&db_conn, &filename, &filepath) {
@@ -49,36 +41,13 @@ pub fn backup_files(
             let mut updated: bool = false;
             if source_row_option.is_some() {
                 source_row = source_row_option.unwrap();
-                updated = if source_row.last_modified.as_secs() < candidate_last_modified.as_secs()
-                {
-                    if config.skip_source_hash_check_if_newer {
-                        hash = source_row.hash;
-                        true
-                    } else {
-                        hash = hash_file(&candidate, max_bytes).hash;
-                        if hash == source_row.hash {
-                            println!("Source hash has not changed!");
-                            update_source_last_modified(
-                                db_conn,
-                                source_row.id,
-                                &candidate_last_modified,
-                            );
-                            false
-                        } else {
-                            println!("Source hash changed!");
-                            update_source_hash(
-                                db_conn,
-                                source_row.id,
-                                &hash,
-                                &candidate_last_modified,
-                            );
-                            true
-                        }
-                    }
-                } else {
-                    hash = source_row.hash;
-                    false
-                }
+                (updated, hash) = get_source_file_updated(
+                    &source_row,
+                    &candidate,
+                    &candidate_last_modified,
+                    &config,
+                    db_conn,
+                )
             } else {
                 hash = hash_file(&candidate, max_bytes).hash;
                 source_row = SourceRow {
@@ -110,18 +79,98 @@ pub fn backup_files(
 
             prepped_backup_candidates.push(PreppedBackup {
                 db_id: source_row.id,
-                file_name: source_row.file_name,
-                source_file_path: source_row.file_path,
+                source_file: candidate,
+                file_name: filename,
                 backup_paths: backup_paths,
                 hash: hash.to_owned(),
-                source_last_modified_date: source_row.last_modified,
+                source_last_modified_date: candidate_last_modified,
                 updated: updated,
             })
         }
     }
-    prepped_backup_candidates
-        .iter()
-        .for_each(|candidate| println!("{:?}", candidate.backup_paths));
+    backup_files_to_destinations(prepped_backup_candidates, db_conn, config);
+}
+
+fn backup_files_to_destinations(
+    prepped_backups: Vec<PreppedBackup>,
+    db_conn: &Connection,
+    config: &Config,
+) {
+    prepped_backups.iter().for_each(|prepped_backup| {
+        prepped_backup.backup_paths.iter().for_each(|backup_path| {
+            if config.force_overwrite_backup {
+                backup_file(prepped_backup, backup_path, db_conn)
+            } else {
+                if prepped_backup.updated {
+                    //source updated, update all destinations
+                    backup_file(prepped_backup, backup_path, db_conn)
+                } else {
+                    //source not updated, check if destinations are out of date
+                    // TODO: Check if backup files need to be updated
+                    println!("Backup files not updated")
+                }
+            }
+        });
+    })
+}
+
+fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, db_conn: &Connection) {
+    if !fs::exists(backup_path.parent().unwrap())
+        .expect("Could not determine if backup path exists")
+    {
+        fs::create_dir_all(backup_path.parent().unwrap())
+            .expect("Could not create backup directory");
+    }
+    println!(
+        "Copying {:?} to {:?}",
+        &prepped_backup.source_file, backup_path
+    );
+    match fs::copy(
+        &prepped_backup.source_file.as_path(),
+        Path::new(backup_path),
+    ) {
+        Ok(_) => {
+            let last_modified = get_file_last_modified(backup_path);
+            let backup_row = BackupRow {
+                source_id: prepped_backup.db_id,
+                file_name: prepped_backup.file_name.to_owned(),
+                file_path: String::from(backup_path.to_str().unwrap()),
+                last_modified,
+            };
+            insert_backup_row(db_conn, backup_row);
+        }
+        Err(e) => {
+            println!("Error copying file {:?}: {:?}", backup_path, e);
+        }
+    }
+}
+
+fn get_source_file_updated(
+    source_row: &SourceRow,
+    backup_candidate: &PathBuf,
+    candidate_last_modified: &Duration,
+    config: &Config,
+    db_conn: &Connection,
+) -> (bool, String) {
+    let hash: String;
+    if source_row.last_modified.as_secs() < candidate_last_modified.as_secs() {
+        if config.skip_source_hash_check_if_newer {
+            hash = source_row.hash.to_owned();
+            (true, hash)
+        } else {
+            hash = hash_file(&backup_candidate, config.max_mebibytes_for_hash).hash;
+            if hash == source_row.hash {
+                update_source_last_modified(db_conn, source_row.id, &candidate_last_modified);
+                (false, hash)
+            } else {
+                update_source_hash(db_conn, source_row.id, &hash, &candidate_last_modified);
+                (true, hash)
+            }
+        }
+    } else {
+        hash = source_row.hash.to_owned();
+        (false, hash)
+    }
 }
 
 fn get_possible_backups(
@@ -144,38 +193,4 @@ fn get_possible_backups(
         );
     }
     possible_backup_paths
-}
-
-fn copy_to_destinations(
-    file: &PathBuf,
-    source_row: SourceRow,
-    source_id: i32,
-    destinations: &Vec<String>,
-    db_conn: &Connection,
-) {
-    for destination in destinations {
-        let destination_file = Path::new(destination).join(&source_row.file_name);
-        println!("Copying {} to {}", destination, destination_file.display());
-        match fs::copy(file.as_path(), Path::new(&destination_file)) {
-            Ok(_) => {
-                let last_modified = destination_file
-                    .metadata()
-                    .unwrap()
-                    .modified()
-                    .unwrap()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("File last_modified is older than Epoch 0");
-                let backup_row = BackupRow {
-                    source_id,
-                    file_name: String::from(&source_row.file_name),
-                    file_path: destination.to_owned(),
-                    last_modified,
-                };
-                insert_backup_row(db_conn, backup_row);
-            }
-            Err(_) => {
-                println!("Error copying file: {:?}", &destination_file);
-            }
-        }
-    }
 }

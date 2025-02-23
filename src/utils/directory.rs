@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 pub fn get_files_in_path(dir: &String, max_depth: &usize) -> Vec<PathBuf> {
@@ -16,4 +17,17 @@ pub fn get_files_in_path(dir: &String, max_depth: &usize) -> Vec<PathBuf> {
         files.push(entry.path().to_path_buf());
     }
     files
+}
+
+pub fn get_file_last_modified(file: &PathBuf) -> Duration {
+    match file
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(UNIX_EPOCH)
+    {
+        Ok(d) => d,
+        Err(e) => panic!("File last_modified is older than Epoch 0: {:?}", e),
+    }
 }
