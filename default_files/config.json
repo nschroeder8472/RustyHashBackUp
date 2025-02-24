@@ -3,6 +3,7 @@
     "max_mebibytes_for_hash": 1,
     "skip_hash_check_if_newer": false,
     "force_overwrite_backup": false,
+    "overwrite_backup_if_existing_is_newer": false,
     "backup_sources": [
         {
             "parent_directory": "/source",

@@ -10,6 +10,7 @@ pub struct Config {
     pub backup_destinations: Vec<String>,
     pub skip_source_hash_check_if_newer: bool,
     pub force_overwrite_backup: bool,
+    pub overwrite_backup_if_existing_is_newer: bool,
 }
 
 #[derive(Debug, Deserialize)]

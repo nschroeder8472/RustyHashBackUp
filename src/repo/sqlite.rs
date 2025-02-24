@@ -1,3 +1,4 @@
+use crate::models::backed_up_file::BackedUpFile;
 use crate::models::backup_row::BackupRow;
 use crate::models::source_row::SourceRow;
 use rusqlite::{Connection, Error, OptionalExtension};
@@ -79,6 +80,31 @@ pub fn select_source(
         })
         .optional();
     source_row
+}
+
+pub fn select_backed_up_file(
+    db_conn: &Connection,
+    filename: &String,
+    filepath: &String,
+) -> rusqlite::Result<Option<BackedUpFile>> {
+    let mut query = db_conn.prepare(
+        "SELECT bf.File_Name, bf.File_Path, bf.Last_Modified, sf.Hash
+            FROM Backup_Files bf
+            LEFT JOIN Source_Files sf
+            ON sf.ID = bf.Source_ID
+            WHERE bf.File_Name=?1 AND bf.File_Path=?2",
+    )?;
+    let backed_up_file = query
+        .query_row([filename, filepath], |row| {
+            Ok(BackedUpFile {
+                file_name: row.get(0)?,
+                file_path: row.get(1)?,
+                last_modified: Duration::from_secs(row.get(2)?),
+                hash: row.get(3)?,
+            })
+        })
+        .optional();
+    backed_up_file
 }
 
 pub fn insert_source_row(db_conn: &Connection, source_row: &SourceRow) -> Result<i32, Error> {

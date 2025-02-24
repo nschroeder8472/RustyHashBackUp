@@ -3,7 +3,7 @@ use crate::models::config::Config;
 use crate::models::prepped_backup::PreppedBackup;
 use crate::models::source_row::SourceRow;
 use crate::repo::sqlite::{
-    insert_backup_row, insert_source_row, select_source, update_source_hash,
+    insert_backup_row, insert_source_row, select_backed_up_file, select_source, update_source_hash,
     update_source_last_modified,
 };
 use crate::service::hash::hash_file;
@@ -38,7 +38,7 @@ pub fn backup_files(
                     );
                 }
             };
-            let mut updated: bool = false;
+            let updated: bool;
             if source_row_option.is_some() {
                 source_row = source_row_option.unwrap();
                 (updated, hash) = get_source_file_updated(
@@ -49,7 +49,7 @@ pub fn backup_files(
                     db_conn,
                 )
             } else {
-                hash = hash_file(&candidate, max_bytes).hash;
+                hash = hash_file(&candidate, max_bytes);
                 source_row = SourceRow {
                     id: 0,
                     file_name: filename.to_owned(),
@@ -99,15 +99,87 @@ fn backup_files_to_destinations(
     prepped_backups.iter().for_each(|prepped_backup| {
         prepped_backup.backup_paths.iter().for_each(|backup_path| {
             if config.force_overwrite_backup {
+                println!("Forced Override Backup");
                 backup_file(prepped_backup, backup_path, db_conn)
             } else {
                 if prepped_backup.updated {
                     //source updated, update all destinations
+                    println!("Source File Updated, backing up");
                     backup_file(prepped_backup, backup_path, db_conn)
                 } else {
-                    //source not updated, check if destinations are out of date
-                    // TODO: Check if backup files need to be updated
-                    println!("Backup files not updated")
+                    if !fs::exists(backup_path).unwrap() {
+                        //Source not updated, backup file does not exist
+                        println!(
+                            "Source File Not Updated, but backup file does not exist, backing up"
+                        );
+                        backup_file(prepped_backup, backup_path, db_conn);
+                    } else {
+                        //Source not updated, backup file does exist, confirm the file is the same
+                        let filename = &backup_path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                        let filepath = &backup_path.parent().unwrap().to_str().unwrap().to_string();
+                        // Check database for any previous backups
+                        let backed_up_file_option =
+                            match select_backed_up_file(db_conn, &filename, &filepath) {
+                                Ok(backup_file_option) => {
+                                    backup_file_option
+                                },
+                                Err(_) => panic!(
+                                    "Failed to select from backup database for {} {}",
+                                    filepath, filename
+                                ),
+                            };
+                        if backed_up_file_option.is_some() {
+                            // existing backup found, compare to file system
+                            let backed_up_file = backed_up_file_option.unwrap();
+                            let existing_backup_last_modified = get_file_last_modified(backup_path);
+                            if existing_backup_last_modified.as_secs()
+                                < backed_up_file.last_modified.as_secs()
+                            {
+                                // existing backed up file is older
+                                let existing_backup_hash =
+                                    hash_file(backup_path, config.max_mebibytes_for_hash);
+                                if backed_up_file.hash != existing_backup_hash {
+                                    // hashes don't match anymore
+                                    println!(
+                                        "Source and backup file differ for file {} {}",
+                                        &filepath, &filename
+                                    );
+                                    backup_file(prepped_backup, backup_path, db_conn);
+                                }
+                            } else if backed_up_file.last_modified.as_secs() < existing_backup_last_modified.as_secs(){
+                                //backed up file is somehow newer than expected
+                                if config.overwrite_backup_if_existing_is_newer {
+                                    println!(
+                                        "Backup file is somehow newer than expected, backing up"
+                                    );
+                                    backup_file(prepped_backup, backup_path, db_conn);
+                                } else {
+                                    println!(
+                                        "Backup file is somehow newer than expected, skipping"
+                                    );
+                                }
+                            } else {
+                                let existing_backup_hash =
+                                    hash_file(backup_path, config.max_mebibytes_for_hash);
+                                if backed_up_file.hash != existing_backup_hash {
+                                    // hashes don't match anymore
+                                    println!(
+                                        "Source and backup file differ for file {} {}",
+                                        &filepath, &filename
+                                    );
+                                    backup_file(prepped_backup, backup_path, db_conn);
+                                }
+                            }
+                        } else {
+                            println!("Backup file does not exist in db, backing up");
+                            backup_file(prepped_backup, backup_path, db_conn);
+                        }
+                    }
                 }
             }
         });
@@ -134,7 +206,7 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, db_conn: &
             let backup_row = BackupRow {
                 source_id: prepped_backup.db_id,
                 file_name: prepped_backup.file_name.to_owned(),
-                file_path: String::from(backup_path.to_str().unwrap()),
+                file_path: backup_path.parent().unwrap().to_str().unwrap().to_string(),
                 last_modified,
             };
             insert_backup_row(db_conn, backup_row);
@@ -158,7 +230,7 @@ fn get_source_file_updated(
             hash = source_row.hash.to_owned();
             (true, hash)
         } else {
-            hash = hash_file(&backup_candidate, config.max_mebibytes_for_hash).hash;
+            hash = hash_file(&backup_candidate, config.max_mebibytes_for_hash);
             if hash == source_row.hash {
                 update_source_last_modified(db_conn, source_row.id, &candidate_last_modified);
                 (false, hash)
