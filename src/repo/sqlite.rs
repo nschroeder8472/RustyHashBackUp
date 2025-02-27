@@ -1,17 +1,29 @@
 use crate::models::backed_up_file::BackedUpFile;
 use crate::models::backup_row::BackupRow;
 use crate::models::source_row::SourceRow;
+use once_cell::sync::Lazy;
 use rusqlite::{Connection, Error, OptionalExtension};
+use std::sync::Mutex;
 use std::time::Duration;
 
-pub fn setup_database(string: &String) -> Connection {
-    let db_conn = match Connection::open(string) {
+static DB_CONN: Lazy<Mutex<Connection>> =
+    Lazy::new(|| Mutex::new(Connection::open_in_memory().unwrap()));
+
+pub fn set_db_connection(db_file: &String) {
+    if db_file == "" {
+        return;
+    }
+
+    let mut conn = DB_CONN.lock().unwrap();
+    *conn = match Connection::open(db_file) {
         Ok(conn) => conn,
         Err(error) => {
             panic!("Failed to open or create database file {}", error);
         }
     };
+}
 
+pub fn setup_database() {
     println!("Setting up database");
     let setup_queries = "BEGIN;
 
@@ -50,19 +62,18 @@ pub fn setup_database(string: &String) -> Connection {
 
     COMMIT;";
 
-    db_conn
-        .execute_batch(setup_queries)
+    let conn = DB_CONN.lock().unwrap();
+    conn.execute_batch(setup_queries)
         .expect("Failed to create database");
     println!("Database setup successfully");
-    db_conn
 }
 
 pub fn select_source(
-    db_conn: &Connection,
     source_file: &String,
     source_path: &String,
 ) -> rusqlite::Result<Option<SourceRow>> {
-    let mut query = db_conn.prepare(
+    let conn = DB_CONN.lock().unwrap();
+    let mut query = conn.prepare(
         "SELECT *
                 FROM Source_Files
                 WHERE File_Name=?1
@@ -83,11 +94,11 @@ pub fn select_source(
 }
 
 pub fn select_backed_up_file(
-    db_conn: &Connection,
     filename: &String,
     filepath: &String,
 ) -> rusqlite::Result<Option<BackedUpFile>> {
-    let mut query = db_conn.prepare(
+    let conn = DB_CONN.lock().unwrap();
+    let mut query = conn.prepare(
         "SELECT bf.File_Name, bf.File_Path, bf.Last_Modified, sf.Hash
             FROM Backup_Files bf
             LEFT JOIN Source_Files sf
@@ -107,12 +118,13 @@ pub fn select_backed_up_file(
     backed_up_file
 }
 
-pub fn insert_source_row(db_conn: &Connection, source_row: &SourceRow) -> Result<i32, Error> {
+pub fn insert_source_row<'a>(source_row: &SourceRow) -> rusqlite::Result<i32, Error> {
+    let conn = DB_CONN.lock().unwrap();
     println!(
         "Inserting source row for file: {} {}",
         &source_row.file_path, &source_row.file_name
     );
-    match db_conn.execute(
+    match &conn.execute(
         "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
                 VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT (File_Name, File_Path) DO UPDATE SET
@@ -127,7 +139,7 @@ pub fn insert_source_row(db_conn: &Connection, source_row: &SourceRow) -> Result
             &source_row.last_modified.as_secs(),
         ),
     ) {
-        Ok(_) => db_conn.query_row(
+        Ok(_) => conn.query_row(
             "SELECT ID
                 FROM Source_Files
                 WHERE File_Name=?1
@@ -135,35 +147,31 @@ pub fn insert_source_row(db_conn: &Connection, source_row: &SourceRow) -> Result
             (&source_row.file_name, &source_row.file_path),
             |row| row.get(0),
         ),
-        Err(e) => Err(e),
+        Err(_) => Err(Error::QueryReturnedNoRows),
     }
 }
 
-pub fn update_source_last_modified(db_conn: &Connection, row_id: i32, last_modified: &Duration) {
-    db_conn
-        .execute(
-            "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
-            (last_modified.as_secs(), row_id),
-        )
-        .expect("Failed to update last modified for row");
+pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) {
+    let conn = DB_CONN.lock().unwrap();
+    conn.execute(
+        "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
+        (last_modified.as_secs(), row_id),
+    )
+    .expect("Failed to update last modified for row");
 }
 
-pub fn update_source_hash(
-    db_conn: &Connection,
-    row_id: i32,
-    hash: &String,
-    last_modified: &Duration,
-) {
-    db_conn
-        .execute(
-            "UPDATE Source_Files SET Hash=?1, Last_Modified=?2 WHERE ID=?3",
-            (hash, last_modified.as_secs(), row_id),
-        )
-        .expect("Failed to update hash for row");
+pub fn update_source_hash(row_id: i32, hash: &String, last_modified: &Duration) {
+    let conn = DB_CONN.lock().unwrap();
+    conn.execute(
+        "UPDATE Source_Files SET Hash=?1, Last_Modified=?2 WHERE ID=?3",
+        (hash, last_modified.as_secs(), row_id),
+    )
+    .expect("Failed to update hash for row");
 }
 
-pub fn insert_backup_row(db_conn: &Connection, backup_row: BackupRow) {
-    match db_conn.execute(
+pub fn insert_backup_row(backup_row: BackupRow) {
+    let conn = DB_CONN.lock().unwrap();
+    match conn.execute(
         "INSERT INTO Backup_Files (Source_ID, File_Name, File_Path, Last_Modified)
                 VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT (File_Name, File_Path) DO UPDATE SET

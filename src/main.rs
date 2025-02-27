@@ -4,6 +4,7 @@ mod service;
 mod utils;
 
 use crate::models::config::{setup_config, BackupSource};
+use crate::repo::sqlite::set_db_connection;
 use crate::service::backup::backup_files;
 use crate::utils::directory::get_files_in_path;
 use clap::{arg, Parser};
@@ -22,7 +23,8 @@ fn main() {
     let args = Cli::parse();
     let config: Config = setup_config(args.config_file);
     println!("Config: {:?}", &config);
-    let db_conn = setup_database(&config.database_file);
+    set_db_connection(&config.database_file);
+    setup_database();
     let max_bytes = &config.max_mebibytes_for_hash * 1048576;
     let backup_candidates = get_source_files(&config.backup_sources);
 
@@ -31,7 +33,7 @@ fn main() {
         return;
     }
 
-    backup_files(backup_candidates, max_bytes, &db_conn, &config);
+    backup_files(backup_candidates, max_bytes, &config);
 
     println!("Done");
 }

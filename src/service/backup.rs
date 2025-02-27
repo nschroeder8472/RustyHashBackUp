@@ -8,7 +8,6 @@ use crate::repo::sqlite::{
 };
 use crate::service::hash::hash_file;
 use crate::utils::directory::get_file_last_modified;
-use rusqlite::Connection;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
@@ -17,7 +16,6 @@ use std::time::Duration;
 pub fn backup_files(
     backup_candidates: HashMap<PathBuf, Vec<PathBuf>>,
     max_bytes: usize,
-    db_conn: &Connection,
     config: &Config,
 ) {
     let mut prepped_backup_candidates: Vec<PreppedBackup> = Vec::new();
@@ -29,7 +27,7 @@ pub fn backup_files(
             let candidate_last_modified = get_file_last_modified(&candidate);
             let hash;
             let mut source_row;
-            let source_row_option = match select_source(&db_conn, &filename, &filepath) {
+            let source_row_option = match select_source(&filename, &filepath) {
                 Ok(source_row) => source_row,
                 Err(_) => {
                     panic!(
@@ -46,7 +44,6 @@ pub fn backup_files(
                     &candidate,
                     &candidate_last_modified,
                     &config,
-                    db_conn,
                 )
             } else {
                 hash = hash_file(&candidate, max_bytes);
@@ -57,7 +54,7 @@ pub fn backup_files(
                     hash: hash.to_owned(),
                     last_modified: candidate_last_modified,
                 };
-                let id = match insert_source_row(db_conn, &source_row) {
+                let id = match insert_source_row(&source_row) {
                     Ok(id) => id,
                     Err(e) => {
                         panic!(
@@ -88,31 +85,27 @@ pub fn backup_files(
             })
         }
     }
-    backup_files_to_destinations(prepped_backup_candidates, db_conn, config);
+    backup_files_to_destinations(prepped_backup_candidates, config);
 }
 
-fn backup_files_to_destinations(
-    prepped_backups: Vec<PreppedBackup>,
-    db_conn: &Connection,
-    config: &Config,
-) {
+fn backup_files_to_destinations(prepped_backups: Vec<PreppedBackup>, config: &Config) {
     prepped_backups.iter().for_each(|prepped_backup| {
         prepped_backup.backup_paths.iter().for_each(|backup_path| {
             if config.force_overwrite_backup {
                 println!("Forced Override Backup");
-                backup_file(prepped_backup, backup_path, db_conn)
+                backup_file(prepped_backup, backup_path)
             } else {
                 if prepped_backup.updated {
                     //source updated, update all destinations
                     println!("Source File Updated, backing up");
-                    backup_file(prepped_backup, backup_path, db_conn)
+                    backup_file(prepped_backup, backup_path)
                 } else {
                     if !fs::exists(backup_path).unwrap() {
                         //Source not updated, backup file does not exist
                         println!(
                             "Source File Not Updated, but backup file does not exist, backing up"
                         );
-                        backup_file(prepped_backup, backup_path, db_conn);
+                        backup_file(prepped_backup, backup_path);
                     } else {
                         //Source not updated, backup file does exist, confirm the file is the same
                         let filename = &backup_path
@@ -124,10 +117,8 @@ fn backup_files_to_destinations(
                         let filepath = &backup_path.parent().unwrap().to_str().unwrap().to_string();
                         // Check database for any previous backups
                         let backed_up_file_option =
-                            match select_backed_up_file(db_conn, &filename, &filepath) {
-                                Ok(backup_file_option) => {
-                                    backup_file_option
-                                },
+                            match select_backed_up_file(&filename, &filepath) {
+                                Ok(backup_file_option) => backup_file_option,
                                 Err(_) => panic!(
                                     "Failed to select from backup database for {} {}",
                                     filepath, filename
@@ -149,15 +140,17 @@ fn backup_files_to_destinations(
                                         "Source and backup file differ for file {} {}",
                                         &filepath, &filename
                                     );
-                                    backup_file(prepped_backup, backup_path, db_conn);
+                                    backup_file(prepped_backup, backup_path);
                                 }
-                            } else if backed_up_file.last_modified.as_secs() < existing_backup_last_modified.as_secs(){
+                            } else if backed_up_file.last_modified.as_secs()
+                                < existing_backup_last_modified.as_secs()
+                            {
                                 //backed up file is somehow newer than expected
                                 if config.overwrite_backup_if_existing_is_newer {
                                     println!(
                                         "Backup file is somehow newer than expected, backing up"
                                     );
-                                    backup_file(prepped_backup, backup_path, db_conn);
+                                    backup_file(prepped_backup, backup_path);
                                 } else {
                                     println!(
                                         "Backup file is somehow newer than expected, skipping"
@@ -172,12 +165,12 @@ fn backup_files_to_destinations(
                                         "Source and backup file differ for file {} {}",
                                         &filepath, &filename
                                     );
-                                    backup_file(prepped_backup, backup_path, db_conn);
+                                    backup_file(prepped_backup, backup_path);
                                 }
                             }
                         } else {
                             println!("Backup file does not exist in db, backing up");
-                            backup_file(prepped_backup, backup_path, db_conn);
+                            backup_file(prepped_backup, backup_path);
                         }
                     }
                 }
@@ -186,7 +179,7 @@ fn backup_files_to_destinations(
     })
 }
 
-fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, db_conn: &Connection) {
+fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf) {
     if !fs::exists(backup_path.parent().unwrap())
         .expect("Could not determine if backup path exists")
     {
@@ -209,7 +202,7 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, db_conn: &
                 file_path: backup_path.parent().unwrap().to_str().unwrap().to_string(),
                 last_modified,
             };
-            insert_backup_row(db_conn, backup_row);
+            insert_backup_row(backup_row);
         }
         Err(e) => {
             println!("Error copying file {:?}: {:?}", backup_path, e);
@@ -222,7 +215,6 @@ fn get_source_file_updated(
     backup_candidate: &PathBuf,
     candidate_last_modified: &Duration,
     config: &Config,
-    db_conn: &Connection,
 ) -> (bool, String) {
     let hash: String;
     if source_row.last_modified.as_secs() < candidate_last_modified.as_secs() {
@@ -232,10 +224,10 @@ fn get_source_file_updated(
         } else {
             hash = hash_file(&backup_candidate, config.max_mebibytes_for_hash);
             if hash == source_row.hash {
-                update_source_last_modified(db_conn, source_row.id, &candidate_last_modified);
+                update_source_last_modified(source_row.id, &candidate_last_modified);
                 (false, hash)
             } else {
-                update_source_hash(db_conn, source_row.id, &hash, &candidate_last_modified);
+                update_source_hash(source_row.id, &hash, &candidate_last_modified);
                 (true, hash)
             }
         }
