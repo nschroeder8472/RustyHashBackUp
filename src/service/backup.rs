@@ -8,21 +8,23 @@ use crate::repo::sqlite::{
 };
 use crate::service::hash::hash_file;
 use crate::utils::directory::get_file_last_modified;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::time::Duration;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-pub fn backup_files(
-    backup_candidates: HashMap<PathBuf, Vec<PathBuf>>,
-    config: &Config,
-) {
+pub fn backup_files(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &Config) {
     let mut prepped_backup_candidates: Vec<PreppedBackup> = Vec::new();
     for candidates in backup_candidates {
         let shared_path = candidates.0;
         for candidate in candidates.1 {
-            let filename = candidate.file_name().unwrap().to_os_string().to_string_lossy().to_string();
+            let filename = candidate
+                .file_name()
+                .unwrap()
+                .to_os_string()
+                .to_string_lossy()
+                .to_string();
             let filepath = candidate.parent().unwrap().to_string_lossy().to_string();
             let candidate_last_modified = get_file_last_modified(&candidate);
             let hash;

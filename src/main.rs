@@ -23,7 +23,10 @@ fn main() {
     let args = Cli::parse();
     let config: Config = setup_config(args.config_file);
     println!("Config: {:?}", &config);
-    rayon::ThreadPoolBuilder::new().num_threads(config.max_simultaneous_copy).build_global().unwrap();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(config.max_simultaneous_copy)
+        .build_global()
+        .unwrap();
     set_db_connection(&config.database_file);
     setup_database();
     let backup_candidates = get_source_files(&config.backup_sources);

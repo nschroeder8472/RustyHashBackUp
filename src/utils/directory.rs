@@ -14,7 +14,9 @@ pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usiz
             Err(_) => panic!("Failed to read directory entry!"),
         };
 
-        if entry.file_type().is_dir() && skip_dirs.contains(&entry.file_name().to_string_lossy().to_string()) {
+        if entry.file_type().is_dir()
+            && skip_dirs.contains(&entry.file_name().to_string_lossy().to_string())
+        {
             dir_walk.skip_current_dir();
             continue;
         } else if entry.file_type().is_dir() {
@@ -27,15 +29,13 @@ pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usiz
 
 pub fn get_file_last_modified(file: &PathBuf) -> Duration {
     let metadata = match file.metadata() {
-        Ok(metadata) => {metadata}
-        Err(e) => {panic!("Failed to get metadata for {}: {}", file.display(), e)}
+        Ok(metadata) => metadata,
+        Err(e) => {
+            panic!("Failed to get metadata for {}: {}", file.display(), e)
+        }
     };
 
-    match metadata
-        .modified()
-        .unwrap()
-        .duration_since(UNIX_EPOCH)
-    {
+    match metadata.modified().unwrap().duration_since(UNIX_EPOCH) {
         Ok(d) => d,
         Err(e) => panic!("File last_modified is older than Epoch 0: {:?}", e),
     }

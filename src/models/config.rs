@@ -19,7 +19,7 @@ pub struct BackupSource {
     pub parent_directory: String,
     #[serde(default = "usize_max")]
     pub max_depth: usize,
-    pub skip_dirs: Vec<String>
+    pub skip_dirs: Vec<String>,
 }
 
 fn usize_max() -> usize {

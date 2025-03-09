@@ -1,8 +1,8 @@
 use blake2::{Blake2b512, Digest};
+use std::ascii::escape_default;
 use std::fs;
 use std::io::{BufReader, Error, Read};
 use std::path::PathBuf;
-use std::ascii::escape_default;
 
 pub fn hash_file(file: &PathBuf, max_mebibytes_bytes: &usize) -> String {
     let max_bytes = max_mebibytes_bytes * 1048576;
