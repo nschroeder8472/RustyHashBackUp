@@ -23,9 +23,9 @@ fn main() {
     let args = Cli::parse();
     let config: Config = setup_config(args.config_file);
     println!("Config: {:?}", &config);
+    rayon::ThreadPoolBuilder::new().num_threads(config.max_simultaneous_copy).build_global().unwrap();
     set_db_connection(&config.database_file);
     setup_database();
-    let max_bytes = &config.max_mebibytes_for_hash * 1048576;
     let backup_candidates = get_source_files(&config.backup_sources);
 
     if backup_candidates.is_empty() {
@@ -33,7 +33,7 @@ fn main() {
         return;
     }
 
-    backup_files(backup_candidates, max_bytes, &config);
+    backup_files(backup_candidates, &config);
 
     println!("Done");
 }
@@ -45,7 +45,7 @@ fn get_source_files(backup_sources: &Vec<BackupSource>) -> HashMap<PathBuf, Vec<
         .map(|s| {
             (
                 PathBuf::from(&s.parent_directory),
-                get_files_in_path(&s.parent_directory, &s.max_depth),
+                get_files_in_path(&s.parent_directory, &s.skip_dirs, &s.max_depth),
             )
         })
         .filter(|(_, v)| !v.is_empty())

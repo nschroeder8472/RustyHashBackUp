@@ -26,6 +26,7 @@ pub fn set_db_connection(db_file: &String) {
 pub fn setup_database() {
     println!("Setting up database");
     let setup_queries = "BEGIN;
+    pragma ENCODING = 'UTF-8';
 
     CREATE TABLE IF NOT EXISTS Source_Files(
         ID            integer not null

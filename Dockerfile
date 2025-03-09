@@ -11,4 +11,5 @@ RUN mkdir /data
 RUN mkdir /source
 RUN mkdir /destination
 COPY --from=builder /usr/src/app/target/release/RustyHashBackUp ./
+ENV RUST_BACKTRACE=full
 CMD ["./RustyHashBackUp"]

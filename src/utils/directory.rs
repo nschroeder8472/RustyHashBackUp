@@ -2,16 +2,22 @@ use std::path::PathBuf;
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-pub fn get_files_in_path(dir: &String, max_depth: &usize) -> Vec<PathBuf> {
+pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usize) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for entry in WalkDir::new(dir)
+    let mut dir_walk = WalkDir::new(dir)
         .max_depth(max_depth.to_owned())
         .follow_links(true)
-        .contents_first(true)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
-        if entry.file_type().is_dir() {
+        .into_iter();
+    while let Some(entry) = dir_walk.next() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => panic!("Failed to read directory entry!"),
+        };
+
+        if entry.file_type().is_dir() && skip_dirs.contains(&entry.file_name().to_string_lossy().to_string()) {
+            dir_walk.skip_current_dir();
+            continue;
+        } else if entry.file_type().is_dir() {
             continue;
         }
         files.push(entry.path().to_path_buf());
@@ -20,9 +26,12 @@ pub fn get_files_in_path(dir: &String, max_depth: &usize) -> Vec<PathBuf> {
 }
 
 pub fn get_file_last_modified(file: &PathBuf) -> Duration {
-    match file
-        .metadata()
-        .unwrap()
+    let metadata = match file.metadata() {
+        Ok(metadata) => {metadata}
+        Err(e) => {panic!("Failed to get metadata for {}: {}", file.display(), e)}
+    };
+
+    match metadata
         .modified()
         .unwrap()
         .duration_since(UNIX_EPOCH)
