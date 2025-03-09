@@ -3,11 +3,11 @@ use crate::models::config::Config;
 use crate::models::prepped_backup::PreppedBackup;
 use crate::models::source_row::SourceRow;
 use crate::repo::sqlite::{
-    insert_backup_row, insert_source_row, select_backed_up_file, select_source, update_source_hash,
+    insert_backup_row, insert_source_row, select_backed_up_file, select_source, update_source_row,
     update_source_last_modified,
 };
 use crate::service::hash::hash_file;
-use crate::utils::directory::get_file_last_modified;
+use crate::utils::directory::{get_file_last_modified, get_file_size};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::fs;
@@ -28,6 +28,7 @@ pub fn backup_files(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &
             let filepath = candidate.parent().unwrap().to_string_lossy().to_string();
             let candidate_last_modified = get_file_last_modified(&candidate);
             let hash;
+            let file_size = get_file_size(&candidate);
             let mut source_row;
             let source_row_option = match select_source(&filename, &filepath) {
                 Ok(source_row) => source_row,
@@ -54,6 +55,7 @@ pub fn backup_files(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &
                     file_name: filename.to_owned(),
                     file_path: filepath.to_owned(),
                     hash: hash.to_owned(),
+                    file_size: file_size.to_owned(),
                     last_modified: candidate_last_modified,
                 };
                 let id = match insert_source_row(&source_row) {
@@ -82,6 +84,7 @@ pub fn backup_files(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &
                 file_name: filename,
                 backup_paths: backup_paths,
                 hash: hash.to_owned(),
+                file_size: file_size.to_owned(),
                 source_last_modified_date: candidate_last_modified,
                 updated: updated,
             })
@@ -184,7 +187,7 @@ fn backup_files_to_destinations(prepped_backups: Vec<PreppedBackup>, config: &Co
                         } else {
                             println!("{}{}{} Backup file does not exist in db",
                                      &back_up_filepath, MAIN_SEPARATOR, &back_up_filename);
-                            if fs::exists(backup_path).unwrap() {
+                            if prepped_backup.file_size == get_file_size(backup_path) {
                                 let existing_backup_hash =
                                     hash_file(backup_path, &config.max_mebibytes_for_hash);
                                 if prepped_backup.hash == existing_backup_hash {
@@ -198,7 +201,7 @@ fn backup_files_to_destinations(prepped_backups: Vec<PreppedBackup>, config: &Co
                                     backup_file(&prepped_backup, backup_path);
                                 }
                             } else {
-                                println!("Backing up: {}{}{}",
+                                println!("Source and Backup files are different sizes, Backing up: {}{}{}",
                                     &back_up_filepath, MAIN_SEPARATOR, &back_up_filename);
                                 backup_file(&prepped_backup, backup_path);
                             }
@@ -252,17 +255,18 @@ fn get_source_file_updated(
     config: &Config,
 ) -> (bool, String) {
     let hash: String;
+    let file_size = get_file_size(backup_candidate);
     if source_row.last_modified.as_secs() < candidate_last_modified.as_secs() {
         if config.skip_source_hash_check_if_newer {
             hash = source_row.hash.to_owned();
             (true, hash)
         } else {
             hash = hash_file(&backup_candidate, &config.max_mebibytes_for_hash);
-            if hash == source_row.hash {
+            if hash == source_row.hash && file_size == source_row.file_size {
                 update_source_last_modified(source_row.id, &candidate_last_modified);
                 (false, hash)
             } else {
-                update_source_hash(source_row.id, &hash, &candidate_last_modified);
+                update_source_row(source_row.id, &hash, &file_size, &candidate_last_modified);
                 (true, hash)
             }
         }

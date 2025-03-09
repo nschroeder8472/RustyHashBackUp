@@ -27,6 +27,16 @@ pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usiz
     files
 }
 
+pub fn get_file_size(file: &PathBuf) -> u64 {
+    match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => {
+            println!("Failed to get metadata for file {:?}", file);
+            0
+        }
+    }
+}
+
 pub fn get_file_last_modified(file: &PathBuf) -> Duration {
     let metadata = match file.metadata() {
         Ok(metadata) => metadata,

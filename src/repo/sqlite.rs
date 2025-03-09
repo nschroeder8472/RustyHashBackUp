@@ -35,6 +35,7 @@ pub fn setup_database() {
         File_Name     TEXT    not null,
         File_Path     TEXT    not null,
         Hash          TEXT,
+        File_Size     integer,
         Last_Modified integer,
         constraint Source_Files_File_Key
             unique (File_Name, File_Path));
@@ -87,7 +88,8 @@ pub fn select_source(
                 file_name: row.get(1)?,
                 file_path: row.get(2)?,
                 hash: row.get(3)?,
-                last_modified: Duration::from_secs(row.get(4)?),
+                file_size: row.get(4)?,
+                last_modified: Duration::from_secs(row.get(5)?),
             })
         })
         .optional();
@@ -126,17 +128,17 @@ pub fn insert_source_row<'a>(source_row: &SourceRow) -> rusqlite::Result<i32, Er
         &source_row.file_path, &source_row.file_name
     );
     match &conn.execute(
-        "INSERT INTO Source_Files (File_Name, File_Path, Hash, Last_Modified)
-                VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO Source_Files (File_Name, File_Path, Hash, File_Size, Last_Modified)
+                VALUES (?1, ?2, ?3, ?4, ?5)
                 ON CONFLICT (File_Name, File_Path) DO UPDATE SET
-                File_Name=excluded.File_name,
-                File_Path=excluded.File_path,
                 Hash=excluded.Hash,
+                File_Size=excluded.File_Size,   
                 Last_Modified=excluded.Last_Modified;",
         (
             &source_row.file_name,
             &source_row.file_path,
             &source_row.hash,
+            &source_row.file_size,
             &source_row.last_modified.as_secs(),
         ),
     ) {
@@ -161,13 +163,13 @@ pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) {
     .expect("Failed to update last modified for row");
 }
 
-pub fn update_source_hash(row_id: i32, hash: &String, last_modified: &Duration) {
+pub fn update_source_row(row_id: i32, hash: &String, file_size: &u64, last_modified: &Duration) {
     let conn = DB_CONN.lock().unwrap();
     conn.execute(
-        "UPDATE Source_Files SET Hash=?1, Last_Modified=?2 WHERE ID=?3",
-        (hash, last_modified.as_secs(), row_id),
+        "UPDATE Source_Files SET Hash=?1, File_Size=?2 Last_Modified=?3 WHERE ID=?4",
+        (hash, file_size, last_modified.as_secs(), row_id),
     )
-    .expect("Failed to update hash for row");
+    .expect("Failed to update source row");
 }
 
 pub fn insert_backup_row(backup_row: BackupRow) {
@@ -177,8 +179,6 @@ pub fn insert_backup_row(backup_row: BackupRow) {
                 VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT (File_Name, File_Path) DO UPDATE SET
                 Source_ID=excluded.Source_ID,
-                File_Name=excluded.File_name,
-                File_Path=excluded.File_path,
                 Last_Modified=excluded.Last_Modified;",
         (
             backup_row.source_id,
