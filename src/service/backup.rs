@@ -27,7 +27,7 @@ pub fn backup_files(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &
 }
 
 fn prepare_backup_candidates(backup_candidates: HashMap<PathBuf, Vec<PathBuf>>, config: &Config) -> Vec<PreppedBackup> {
-    let mut prepped_backup_candidates: Mutex<Vec<PreppedBackup>> = Mutex::new(Vec::new());
+    let prepped_backup_candidates: Mutex<Vec<PreppedBackup>> = Mutex::new(Vec::new());
     backup_candidates.into_par_iter().for_each(|(shared_path, candidates)| {
         for candidate in candidates {
             let filename = candidate
