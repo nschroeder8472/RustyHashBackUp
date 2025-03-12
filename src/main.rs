@@ -24,7 +24,7 @@ fn main() {
     let config: Config = setup_config(args.config_file);
     println!("Config: {:?}", &config);
     rayon::ThreadPoolBuilder::new()
-        .num_threads(config.max_simultaneous_copy)
+        .num_threads(config.max_threads)
         .build_global()
         .unwrap();
     set_db_connection(&config.database_file);
