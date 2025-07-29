@@ -39,6 +39,7 @@ const fn bool_true() -> bool { true }
 
 pub fn setup_config(config_file: String) -> Config {
     let config_file = PathBuf::from(config_file);
+    println!("Config File: {}", config_file.display());
     let config_str = match fs::read_to_string(config_file) {
         Ok(file) => file,
         Err(e) => {

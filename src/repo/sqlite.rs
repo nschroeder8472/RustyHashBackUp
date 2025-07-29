@@ -165,11 +165,13 @@ pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) {
 
 pub fn update_source_row(row_id: i32, hash: &String, file_size: &u64, last_modified: &Duration) {
     let conn = DB_CONN.lock().unwrap();
-    conn.execute(
-        "UPDATE Source_Files SET Hash=?1, File_Size=?2 Last_Modified=?3 WHERE ID=?4",
+    match conn.execute(
+        "UPDATE Source_Files SET Hash=?1, File_Size=?2, Last_Modified=?3 WHERE ID=?4",
         (hash, file_size, last_modified.as_secs(), row_id),
-    )
-    .expect("Failed to update source row");
+    ) {
+        Err(e) => panic!("Error updating source row for ID: {:?} \n Hash: {:?}, File Size: {:?}, Last Modified: {:?} \n {:?}", row_id, hash, file_size, last_modified.as_secs(), e),
+        _ => {}
+    };
 }
 
 pub fn insert_backup_row(backup_row: BackupRow) {
