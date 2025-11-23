@@ -1,3 +1,4 @@
+use crate::models::error::{BackupError, Result};
 use crate::models::backed_up_file::BackedUpFile;
 use crate::models::backup_row::BackupRow;
 use crate::models::source_row::SourceRow;
@@ -5,26 +6,29 @@ use once_cell::sync::Lazy;
 use rusqlite::{Connection, Error, OptionalExtension};
 use std::sync::Mutex;
 use std::time::Duration;
+use log::{debug, info};
 
 static DB_CONN: Lazy<Mutex<Connection>> =
     Lazy::new(|| Mutex::new(Connection::open_in_memory().unwrap()));
 
-pub fn set_db_connection(db_file: &String) {
-    if db_file == "" {
-        return;
+pub fn set_db_connection(db_file: &String) -> Result<()> {
+    if db_file.is_empty() {
+        info!("No Database file provided, using in memory default");
+        return Ok(());
     }
 
     let mut conn = DB_CONN.lock().unwrap();
-    *conn = match Connection::open(db_file) {
-        Ok(conn) => conn,
-        Err(error) => {
-            panic!("Failed to open or create database file {}", error);
+    *conn = Connection::open(db_file).map_err(|cause| {
+        BackupError::DatabaseConnection {
+            path: db_file.clone(),
+            cause,
         }
-    };
+    })?;
+    Ok(())
 }
 
-pub fn setup_database() {
-    println!("Setting up database");
+pub fn setup_database() -> Result<()> {
+    info!("Initializing database schema");
     let setup_queries = "BEGIN;
     pragma ENCODING = 'UTF-8';
 
@@ -65,9 +69,14 @@ pub fn setup_database() {
     COMMIT;";
 
     let conn = DB_CONN.lock().unwrap();
-    conn.execute_batch(setup_queries)
-        .expect("Failed to create database");
-    println!("Database setup successfully");
+    conn.execute_batch(setup_queries).map_err(|cause| {
+        BackupError::DatabaseQuery {
+            operation: "create tables".to_string(),
+            cause,
+        }
+    })?;
+    info!("Database schema initialized successfully");
+    Ok(())
 }
 
 pub fn select_source(
@@ -123,8 +132,8 @@ pub fn select_backed_up_file(
 
 pub fn insert_source_row<'a>(source_row: &SourceRow) -> rusqlite::Result<i32, Error> {
     let conn = DB_CONN.lock().unwrap();
-    println!(
-        "Inserting source row for file: {} {}",
+    debug!(
+        "Inserting source record: {}/{}",
         &source_row.file_path, &source_row.file_name
     );
     match &conn.execute(
@@ -154,29 +163,39 @@ pub fn insert_source_row<'a>(source_row: &SourceRow) -> rusqlite::Result<i32, Er
     }
 }
 
-pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) {
+pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) -> Result<()> {
     let conn = DB_CONN.lock().unwrap();
     conn.execute(
         "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
         (last_modified.as_secs(), row_id),
-    )
-    .expect("Failed to update last modified for row");
+    ).map_err(|cause| {
+        BackupError::DatabaseUpdate {
+            table: "Source_Files".to_string(),
+            id: row_id as i64,
+            cause,
+        }
+    })?;
+    Ok(())
 }
 
-pub fn update_source_row(row_id: i32, hash: &String, file_size: &u64, last_modified: &Duration) {
+pub fn update_source_row(row_id: i32, hash: &String, file_size: &u64, last_modified: &Duration) -> Result<()> {
     let conn = DB_CONN.lock().unwrap();
-    match conn.execute(
+    conn.execute(
         "UPDATE Source_Files SET Hash=?1, File_Size=?2, Last_Modified=?3 WHERE ID=?4",
         (hash, file_size, last_modified.as_secs(), row_id),
-    ) {
-        Err(e) => panic!("Error updating source row for ID: {:?} \n Hash: {:?}, File Size: {:?}, Last Modified: {:?} \n {:?}", row_id, hash, file_size, last_modified.as_secs(), e),
-        _ => {}
-    };
+    ).map_err(|cause| {
+        BackupError::DatabaseUpdate {
+            table: "Source_Files".to_string(),
+            id: row_id as i64,
+            cause,
+        }
+    })?;
+    Ok(())
 }
 
-pub fn insert_backup_row(backup_row: BackupRow) {
+pub fn insert_backup_row(backup_row: BackupRow) -> Result<()> {
     let conn = DB_CONN.lock().unwrap();
-    match conn.execute(
+    conn.execute(
         "INSERT INTO Backup_Files (Source_ID, File_Name, File_Path, Last_Modified)
                 VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT (File_Name, File_Path) DO UPDATE SET
@@ -185,18 +204,16 @@ pub fn insert_backup_row(backup_row: BackupRow) {
         (
             backup_row.source_id,
             &backup_row.file_name,
-            backup_row.file_path,
+            &backup_row.file_path,
             backup_row.last_modified.as_secs(),
         ),
-    ) {
-        Ok(_) => {
-            println!("Successfully inserted backup row {}", backup_row.file_name);
+    ).map_err(|cause| {
+        BackupError::DatabaseInsert {
+            table: "Backup_Files".to_string(),
+            file: backup_row.file_name.clone(),
+            cause,
         }
-        Err(e) => {
-            println!(
-                "Failed to insert backup row {}: {}",
-                backup_row.file_name, e
-            );
-        }
-    }
+    })?;
+    debug!("Inserted backup record: {}", backup_row.file_name);
+    Ok(())
 }

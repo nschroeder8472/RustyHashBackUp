@@ -1,3 +1,6 @@
+use crate::models::config_validator::validate_config;
+use crate::models::error::{BackupError, Result};
+use log::info;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -15,7 +18,7 @@ pub struct Config {
     pub force_overwrite_backup: bool,
     #[serde(default = "bool_false")]
     pub overwrite_backup_if_existing_is_newer: bool,
-    #[serde(default = "usize_zero")]
+    #[serde(default = "default_max_threads")]
     pub max_threads: usize,
 }
 
@@ -32,25 +35,33 @@ const fn vec_default() -> Vec<String> { Vec::new() }
 const fn usize_max() -> usize {
     usize::MAX
 }
-const fn usize_zero() -> usize {0}
 const fn usize_one() -> usize {1}
 const fn bool_false() -> bool { false }
 const fn bool_true() -> bool { true }
+fn default_max_threads() -> usize {
+    num_cpus::get_physical()
+}
 
-pub fn setup_config(config_file: String) -> Config {
-    let config_file = PathBuf::from(config_file);
-    println!("Config File: {}", config_file.display());
-    let config_str = match fs::read_to_string(config_file) {
-        Ok(file) => file,
-        Err(e) => {
-            panic!("Failed to read config file: {:?}", e);
-        }
-    };
+pub fn setup_config(config_file: String) -> Result<Config> {
+    let config_path = PathBuf::from(config_file);
+    info!("Loading config from: {}", config_path.display());
 
-    match serde_json::from_str(&config_str) {
-        Ok(config) => config,
-        Err(e) => {
-            panic!("Failed to parse config file: {:?}", e);
+    let config_str = fs::read_to_string(&config_path).map_err(|cause| {
+        BackupError::ConfigRead {
+            path: config_path.clone(),
+            cause,
         }
-    }
+    })?;
+
+    let config: Config = serde_json::from_str(&config_str).map_err(|cause| {
+        BackupError::ConfigParse {
+            path: config_path,
+            cause,
+        }
+    })?;
+
+    // Validate configuration
+    validate_config(&config)?;
+
+    Ok(config)
 }

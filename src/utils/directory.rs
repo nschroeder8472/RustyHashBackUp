@@ -1,18 +1,19 @@
+use crate::models::error::{BackupError, Result};
 use std::path::PathBuf;
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usize) -> Vec<PathBuf> {
+pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usize) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let mut dir_walk = WalkDir::new(dir)
         .max_depth(max_depth.to_owned())
         .follow_links(true)
         .into_iter();
+
     while let Some(entry) = dir_walk.next() {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => panic!("Failed to read directory entry!"),
-        };
+        let entry = entry.map_err(|e| {
+            BackupError::DirectoryRead(format!("Failed to read directory entry: {}", e))
+        })?;
 
         if entry.file_type().is_dir()
             && skip_dirs.contains(&entry.file_name().to_string_lossy().to_string())
@@ -24,29 +25,38 @@ pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usiz
         }
         files.push(entry.path().to_path_buf());
     }
-    files
+    Ok(files)
 }
 
-pub fn get_file_size(file: &PathBuf) -> u64 {
-    match file.metadata() {
-        Ok(metadata) => metadata.len(),
-        Err(_) => {
-            println!("Failed to get metadata for file {:?}", file);
-            0
+pub fn get_file_size(file: &PathBuf) -> Result<u64> {
+    let metadata = file.metadata().map_err(|cause| {
+        BackupError::MetadataError {
+            path: file.clone(),
+            cause,
         }
-    }
+    })?;
+    Ok(metadata.len())
 }
 
-pub fn get_file_last_modified(file: &PathBuf) -> Duration {
-    let metadata = match file.metadata() {
-        Ok(metadata) => metadata,
-        Err(e) => {
-            panic!("Failed to get metadata for {}: {}", file.display(), e)
+pub fn get_file_last_modified(file: &PathBuf) -> Result<Duration> {
+    let metadata = file.metadata().map_err(|cause| {
+        BackupError::MetadataError {
+            path: file.clone(),
+            cause,
         }
-    };
+    })?;
 
-    match metadata.modified().unwrap().duration_since(UNIX_EPOCH) {
-        Ok(d) => d,
-        Err(e) => panic!("File last_modified is older than Epoch 0: {:?}", e),
-    }
+    let modified = metadata.modified().map_err(|cause| {
+        BackupError::MetadataError {
+            path: file.clone(),
+            cause,
+        }
+    })?;
+
+    modified.duration_since(UNIX_EPOCH).map_err(|cause| {
+        BackupError::ModificationTimeError {
+            path: file.clone(),
+            cause,
+        }
+    })
 }

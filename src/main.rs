@@ -4,10 +4,15 @@ mod service;
 mod utils;
 
 use crate::models::config::{setup_config, BackupSource};
+use crate::models::dry_run_mode::DryRunMode;
 use crate::repo::sqlite::set_db_connection;
 use crate::service::backup::backup_files;
 use crate::utils::directory::get_files_in_path;
+use crate::utils::progress::{create_progress_bar, create_progress_bar_with_bytes, create_spinner};
+use anyhow::{Context, Result};
 use clap::{arg, Parser};
+use indicatif::MultiProgress;
+use log::{debug, info, warn};
 use models::config::Config;
 use repo::sqlite::setup_database;
 use std::collections::HashMap;
@@ -17,43 +22,167 @@ use std::path::PathBuf;
 struct Cli {
     #[arg(short = 'c', long = "config", default_value = "/data/config.json")]
     config_file: String,
+
+    #[arg(short = 'l', long = "log-level", default_value = "info")]
+    log_level: String,
+
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+
+    #[arg(long = "validate-only")]
+    validate_only: bool,
+
+    #[arg(long = "dry-run", conflicts_with = "dry_run_full")]
+    dry_run: bool,
+
+    #[arg(long = "dry-run-full", conflicts_with = "dry_run")]
+    dry_run_full: bool,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Cli::parse();
-    let config: Config = setup_config(args.config_file);
-    println!("Config: {:?}", &config);
+
+    // Initialize logger with configurable log level
+    let log_level = match args.log_level.to_lowercase().as_str() {
+        "trace" => log::LevelFilter::Trace,
+        "debug" => log::LevelFilter::Debug,
+        "info" => log::LevelFilter::Info,
+        "warn" => log::LevelFilter::Warn,
+        "error" => log::LevelFilter::Error,
+        _ => log::LevelFilter::Info,
+    };
+
+    env_logger::Builder::from_default_env()
+        .filter_level(log_level)
+        .format_timestamp_secs()
+        .init();
+
+    info!("RustyHashBackup starting...");
+    let config: Config = setup_config(args.config_file)
+        .context("Failed to load configuration")?;
+    debug!("Loaded config: {:?}", &config);
+
+    // If validate-only flag is set, exit after successful validation
+    if args.validate_only {
+        info!("Configuration is valid. Exiting (--validate-only mode).");
+        return Ok(());
+    }
+
+    // Determine dry-run mode
+    let dry_run_mode = if args.dry_run_full {
+        info!("Running in DRY RUN FULL mode - will simulate all operations including hashing");
+        DryRunMode::Full
+    } else if args.dry_run {
+        info!("Running in DRY RUN QUICK mode - will show what would be processed (skips hashing)");
+        DryRunMode::Quick
+    } else {
+        DryRunMode::None
+    };
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(config.max_threads)
         .build_global()
-        .unwrap();
-    set_db_connection(&config.database_file);
-    setup_database();
-    let backup_candidates = get_source_files(&config.backup_sources);
+        .context("Failed to build thread pool")?;
 
-    if backup_candidates.is_empty() {
-        println!("No files found");
-        return;
+    set_db_connection(&config.database_file)
+        .context("Failed to connect to database")?;
+
+    setup_database()
+        .context("Failed to set up database schema")?;
+
+    // Initialize progress tracking
+    let multi_progress = if !args.quiet {
+        Some(MultiProgress::new())
+    } else {
+        None
+    };
+
+    // Phase 1: File Discovery
+    let discovery_progress = multi_progress.as_ref().map(|mp| {
+        mp.add(create_spinner(&format!("{}[1/3] Discovering source files...", dry_run_mode.progress_prefix())))
+    });
+
+    let backup_candidates = get_source_files(&config.backup_sources, discovery_progress.as_ref())?;
+
+    if let Some(progress) = discovery_progress {
+        let total: usize = backup_candidates.values().map(|v| v.len()).sum();
+        progress.finish_with_message(format!("{}[1/3] Found {} files across {} directories", dry_run_mode.progress_prefix(), total, backup_candidates.len()));
     }
 
-    backup_files(backup_candidates, &config);
+    if backup_candidates.is_empty() {
+        warn!("No source files found to backup");
+        return Ok(());
+    }
 
-    println!("Done");
+    // Phase 2 & 3: Preparation and Backup
+    let total_files: u64 = backup_candidates.values().map(|v| v.len() as u64).sum();
+
+    let prep_progress = multi_progress.as_ref().map(|mp| {
+        mp.add(create_progress_bar(total_files, &format!("{}[2/3] Preparing backups", dry_run_mode.progress_prefix())))
+    });
+
+    let backup_progress = multi_progress.as_ref().map(|mp| {
+        let action = if dry_run_mode.should_copy_files() { "Copying files" } else { "Simulating file copy" };
+        mp.add(create_progress_bar_with_bytes(total_files, &format!("{}[3/3] {}", dry_run_mode.progress_prefix(), action)))
+    });
+
+    backup_files(
+        backup_candidates,
+        &config,
+        prep_progress.as_ref(),
+        backup_progress.as_ref(),
+        dry_run_mode,
+    )
+    .context("Backup operation failed")?;
+
+    if let Some(progress) = prep_progress {
+        progress.finish();
+    }
+    if let Some(progress) = backup_progress {
+        let message = if dry_run_mode.is_dry_run() {
+            format!("{}[3/3] Dry run completed - {} files simulated", dry_run_mode.progress_prefix(), total_files)
+        } else {
+            format!("[3/3] Backup completed - {} files processed", total_files)
+        };
+        progress.finish_with_message(message);
+    }
+
+    if dry_run_mode.is_dry_run() {
+        info!("DRY RUN completed - no files were actually copied or database updated");
+    } else {
+        info!("Backup operation completed successfully");
+    }
+    Ok(())
 }
 
-fn get_source_files(backup_sources: &Vec<BackupSource>) -> HashMap<PathBuf, Vec<PathBuf>> {
+fn get_source_files(
+    backup_sources: &Vec<BackupSource>,
+    progress: Option<&indicatif::ProgressBar>,
+) -> Result<HashMap<PathBuf, Vec<PathBuf>>> {
+    info!("Discovering files in {} source directories...", backup_sources.len());
+
     let mut result_map = HashMap::<PathBuf, Vec<PathBuf>>::new();
-    backup_sources
-        .iter()
-        .map(|s| {
-            (
-                PathBuf::from(&s.parent_directory),
-                get_files_in_path(&s.parent_directory, &s.skip_dirs, &s.max_depth),
-            )
-        })
-        .filter(|(_, v)| !v.is_empty())
-        .for_each(|(path, files)| {
-            result_map.insert(path, files);
-        });
-    result_map
+    let mut total_files = 0;
+
+    for source in backup_sources {
+        if let Some(pb) = progress {
+            pb.set_message(format!("Scanning: {}", source.parent_directory));
+        }
+
+        let files = get_files_in_path(&source.parent_directory, &source.skip_dirs, &source.max_depth)
+            .with_context(|| format!("Failed to read directory: {}", source.parent_directory))?;
+
+        if !files.is_empty() {
+            let file_count = files.len();
+            total_files += file_count;
+            result_map.insert(PathBuf::from(&source.parent_directory), files);
+
+            if let Some(pb) = progress {
+                pb.set_message(format!("Found {} files in {}", file_count, source.parent_directory));
+            }
+        }
+    }
+
+    info!("Found {} files across {} directories", total_files, result_map.len());
+    Ok(result_map)
 }
