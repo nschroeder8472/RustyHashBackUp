@@ -29,13 +29,13 @@ struct Cli {
     #[arg(short = 'q', long = "quiet")]
     quiet: bool,
 
-    #[arg(long = "validate-only")]
+    #[arg(short = 'v', long = "validate-only")]
     validate_only: bool,
 
-    #[arg(long = "dry-run", conflicts_with = "dry_run_full")]
+    #[arg(short = 'd', long = "dry-run", conflicts_with = "dry_run_full")]
     dry_run: bool,
 
-    #[arg(long = "dry-run-full", conflicts_with = "dry_run")]
+    #[arg(short = 'f', long = "dry-run-full", conflicts_with = "dry_run")]
     dry_run_full: bool,
 }
 
