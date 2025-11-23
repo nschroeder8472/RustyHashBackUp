@@ -112,8 +112,8 @@ mod tests {
         assert_eq!(config.max_mebibytes_for_hash, 5);
         assert_eq!(config.backup_sources.len(), 1);
         assert_eq!(config.backup_destinations.len(), 2);
-        assert_eq!(config.skip_source_hash_check_if_newer, false);
-        assert_eq!(config.force_overwrite_backup, true);
+        assert!(!config.skip_source_hash_check_if_newer);
+        assert!(config.force_overwrite_backup);
         assert_eq!(config.max_threads, 8);
     }
 
@@ -144,9 +144,9 @@ mod tests {
 
         // Check defaults are applied
         assert_eq!(config.max_mebibytes_for_hash, 1); // default
-        assert_eq!(config.skip_source_hash_check_if_newer, true); // default
-        assert_eq!(config.force_overwrite_backup, false); // default
-        assert_eq!(config.overwrite_backup_if_existing_is_newer, false); // default
+        assert!(config.skip_source_hash_check_if_newer); // default
+        assert!(!config.force_overwrite_backup); // default
+        assert!(!config.overwrite_backup_if_existing_is_newer); // default
         assert_eq!(config.max_threads, num_cpus::get_physical()); // default
         assert_eq!(config.backup_sources[0].max_depth, usize::MAX); // default
         assert_eq!(config.backup_sources[0].skip_dirs.len(), 0); // default empty vec
