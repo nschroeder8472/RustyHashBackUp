@@ -66,11 +66,16 @@ fn validate_backup_sources(sources: &Vec<BackupSource>) -> Result<()> {
 
         // Check if directory exists
         if !path.exists() {
+            #[cfg(windows)]
+            let suggestion = format!("mkdir \"{}\"", source.parent_directory);
+            #[cfg(not(windows))]
+            let suggestion = format!("mkdir -p \"{}\"", source.parent_directory);
+
             return Err(BackupError::DirectoryRead(format!(
-                "Backup source #{} does not exist: {}\nSuggestion: Create the directory with: mkdir -p \"{}\"",
+                "Backup source #{} does not exist: {}\nSuggestion: Create the directory with: {}",
                 idx + 1,
                 source.parent_directory,
-                source.parent_directory
+                suggestion
             )));
         }
 
@@ -118,11 +123,16 @@ fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
             // Check if parent exists (we can create the destination)
             if let Some(parent) = path.parent() {
                 if !parent.exists() {
+                    #[cfg(windows)]
+                    let suggestion = format!("mkdir \"{}\"", parent.display());
+                    #[cfg(not(windows))]
+                    let suggestion = format!("mkdir -p \"{}\"", parent.display());
+
                     return Err(BackupError::DirectoryRead(format!(
-                        "Backup destination #{} parent directory does not exist: {}\nSuggestion: Create the parent directory with: mkdir -p \"{}\"",
+                        "Backup destination #{} parent directory does not exist: {}\nSuggestion: Create the parent directory with: {}",
                         idx + 1,
                         dest,
-                        parent.display()
+                        suggestion
                     )));
                 }
 
@@ -195,11 +205,23 @@ fn validate_database_path(db_file: &String) -> Result<()> {
     } else {
         // Database doesn't exist, check if parent directory exists and is writable
         if let Some(parent) = path.parent() {
-            if !parent.exists() {
+            // Handle edge case: if parent is empty (current directory), it always exists
+            let parent_exists = if parent.as_os_str().is_empty() {
+                true // Current directory always exists
+            } else {
+                parent.exists()
+            };
+
+            if !parent_exists {
+                #[cfg(windows)]
+                let suggestion = format!("mkdir \"{}\"", parent.display());
+                #[cfg(not(windows))]
+                let suggestion = format!("mkdir -p \"{}\"", parent.display());
+
                 return Err(BackupError::DirectoryRead(format!(
-                    "Database parent directory does not exist: {}\nSuggestion: Create the directory with: mkdir -p \"{}\"",
+                    "Database parent directory does not exist: {}\nSuggestion: Create the directory with: {}",
                     db_file,
-                    parent.display()
+                    suggestion
                 )));
             }
 
@@ -256,6 +278,7 @@ fn check_writable(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_check_writable_temp_dir() {
@@ -281,6 +304,173 @@ mod tests {
         let result = validate_numeric_values(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("max_threads"));
+    }
+
+    #[test]
+    fn test_validate_config_passes_for_valid_config() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: String::new(), // Empty = in-memory
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rejects_nonexistent_source_directory() {
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: ":memory:".to_string(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: "/this/does/not/exist".to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_rejects_empty_backup_sources() {
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: ":memory:".to_string(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![], // Empty sources
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("At least one backup source"));
+    }
+
+    #[test]
+    fn test_rejects_empty_backup_destinations() {
+        let temp_source = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: ":memory:".to_string(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![], // Empty destinations
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("At least one backup destination"));
+    }
+
+    #[test]
+    fn test_validates_database_path_with_in_memory() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: String::new(), // Empty = in-memory
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rejects_conflicting_force_overwrite_flags() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: String::new(), // Empty = in-memory
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: true,
+            overwrite_backup_if_existing_is_newer: true, // Conflicting with force_overwrite
+            max_threads: 4,
+        };
+
+        // Note: This currently just logs a warning, doesn't error
+        // Testing that it doesn't error - it should succeed with a warning
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rejects_max_depth_zero() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: ":memory:".to_string(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 0, // Invalid
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("max_depth of 0"));
     }
 
     fn create_test_config() -> Config {

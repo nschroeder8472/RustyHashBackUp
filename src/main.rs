@@ -5,7 +5,7 @@ mod utils;
 
 use crate::models::config::{setup_config, BackupSource};
 use crate::models::dry_run_mode::DryRunMode;
-use crate::repo::sqlite::set_db_connection;
+use crate::repo::sqlite::set_db_pool;
 use crate::service::backup::backup_files;
 use crate::utils::directory::get_files_in_path;
 use crate::utils::progress::{create_progress_bar, create_progress_bar_with_bytes, create_spinner};
@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short = 'c', long = "config", default_value = "/data/config.json")]
+    #[arg(short = 'c', long = "config", default_value = "config.json", env = "RUSTYHASHBACKUP_CONFIG")]
     config_file: String,
 
     #[arg(short = 'l', long = "log-level", default_value = "info")]
@@ -84,8 +84,8 @@ fn main() -> Result<()> {
         .build_global()
         .context("Failed to build thread pool")?;
 
-    set_db_connection(&config.database_file)
-        .context("Failed to connect to database")?;
+    set_db_pool(&config.database_file)
+        .context("Failed to initialize database connection pool")?;
 
     setup_database()
         .context("Failed to set up database schema")?;

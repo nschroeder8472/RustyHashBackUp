@@ -41,10 +41,10 @@ pub fn backup_files(
         for backup_path in &prepped_backup_candidate.backup_paths {
             if config.force_overwrite_backup {
                 if dry_run_mode.should_copy_files() {
-                    if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, dry_run_mode) {
+                    if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
                         files_copied += 1;
                         bytes_copied += prepped_backup_candidate.file_size;
-                    } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, dry_run_mode) {
+                    } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
                         errors.lock().unwrap().push(e);
                     }
                 } else {
@@ -56,10 +56,10 @@ pub fn backup_files(
             } else if let Ok(required) = is_backup_required(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
                 if required {
                     if dry_run_mode.should_copy_files() {
-                        if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, dry_run_mode) {
+                        if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
                             files_copied += 1;
                             bytes_copied += prepped_backup_candidate.file_size;
-                        } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, dry_run_mode) {
+                        } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
                             errors.lock().unwrap().push(e);
                         }
                     } else {
@@ -325,7 +325,7 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
     }
 }
 
-fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, dry_run_mode: DryRunMode) -> Result<()> {
+fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<()> {
     // Note: In dry-run modes, this function should not be called since we log directly in backup_files()
     // But if it is called, we still respect the dry_run_mode
     if !dry_run_mode.should_copy_files() {
@@ -353,6 +353,32 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, dry_run_mo
             cause,
         }
     })?;
+
+    // Verify backup integrity by hashing the copied file
+    // This ensures the backup matches the source and catches:
+    // - File corruption during copy
+    // - Disk errors
+    // - Network issues (for network drives)
+    // - Hardware failures
+    debug!("Verifying backup integrity: {:?}", backup_path);
+    let backup_hash = hash_file(backup_path, &config.max_mebibytes_for_hash)?;
+
+    if backup_hash != prepped_backup.hash {
+        // Verification failed - delete the corrupted backup
+        warn!(
+            "Backup verification FAILED for {:?}: hash mismatch! Deleting corrupted backup.",
+            backup_path
+        );
+        if let Err(e) = fs::remove_file(backup_path) {
+            error!("Failed to delete corrupted backup file {:?}: {}", backup_path, e);
+        }
+        return Err(BackupError::DirectoryRead(format!(
+            "Backup verification failed for {:?}: source hash {} != backup hash {}",
+            backup_path, prepped_backup.hash, backup_hash
+        )));
+    }
+
+    debug!("Backup verification passed: {:?}", backup_path);
 
     let backup_row = create_backup_row(prepped_backup, backup_path)?;
     insert_backup_row(backup_row)?;
