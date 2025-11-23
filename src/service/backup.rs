@@ -1,17 +1,17 @@
-use crate::models::error::{BackupError, Result};
-use log::{debug, error, info, warn};
 use crate::models::backup_row::BackupRow;
 use crate::models::config::Config;
 use crate::models::dry_run_mode::DryRunMode;
+use crate::models::error::{BackupError, Result};
 use crate::models::prepped_backup::PreppedBackup;
 use crate::models::source_row::SourceRow;
 use crate::repo::sqlite::{
-    insert_backup_row, insert_source_row, select_backed_up_file, select_source, update_source_row,
-    update_source_last_modified,
+    insert_backup_row, insert_source_row, select_backed_up_file, select_source,
+    update_source_last_modified, update_source_row,
 };
 use crate::service::hash::hash_file;
 use crate::utils::directory::{get_file_last_modified, get_file_size};
 use indicatif::ProgressBar;
+use log::{debug, error, info, warn};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::fs;
@@ -26,57 +26,94 @@ pub fn backup_files(
     backup_progress: Option<&ProgressBar>,
     dry_run_mode: DryRunMode,
 ) -> Result<()> {
-    info!("Starting backup to {} destinations...", config.backup_destinations.len());
+    info!(
+        "Starting backup to {} destinations...",
+        config.backup_destinations.len()
+    );
 
-    let prepped_backup_candidates = prepare_backup_candidates(backup_candidates, config, prep_progress, dry_run_mode)?;
-    info!("Prepared {} files for backup", prepped_backup_candidates.len());
+    let prepped_backup_candidates =
+        prepare_backup_candidates(backup_candidates, config, prep_progress, dry_run_mode)?;
+    info!(
+        "Prepared {} files for backup",
+        prepped_backup_candidates.len()
+    );
 
     let errors: Mutex<Vec<BackupError>> = Mutex::new(Vec::new());
     let backup_progress_arc = backup_progress.map(|pb| Arc::new(pb.clone()));
 
-    prepped_backup_candidates.into_par_iter().for_each(|prepped_backup_candidate| {
-        let mut files_copied = 0u64;
-        let mut bytes_copied = 0u64;
+    prepped_backup_candidates
+        .into_par_iter()
+        .for_each(|prepped_backup_candidate| {
+            let mut files_copied = 0u64;
+            let mut bytes_copied = 0u64;
 
-        for backup_path in &prepped_backup_candidate.backup_paths {
-            if config.force_overwrite_backup {
-                if dry_run_mode.should_copy_files() {
-                    if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
-                        files_copied += 1;
-                        bytes_copied += prepped_backup_candidate.file_size;
-                    } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
-                        errors.lock().unwrap().push(e);
-                    }
-                } else {
-                    // Dry-run mode: just log what would be copied
-                    info!("Would copy: {:?} → {:?}", prepped_backup_candidate.source_file, backup_path);
-                    files_copied += 1;
-                    bytes_copied += prepped_backup_candidate.file_size;
-                }
-            } else if let Ok(required) = is_backup_required(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
-                if required {
+            for backup_path in &prepped_backup_candidate.backup_paths {
+                if config.force_overwrite_backup {
                     if dry_run_mode.should_copy_files() {
-                        if let Ok(_) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
+                        if let Ok(_) = backup_file(
+                            &prepped_backup_candidate,
+                            backup_path,
+                            config,
+                            dry_run_mode,
+                        ) {
                             files_copied += 1;
                             bytes_copied += prepped_backup_candidate.file_size;
-                        } else if let Err(e) = backup_file(&prepped_backup_candidate, backup_path, config, dry_run_mode) {
+                        } else if let Err(e) = backup_file(
+                            &prepped_backup_candidate,
+                            backup_path,
+                            config,
+                            dry_run_mode,
+                        ) {
                             errors.lock().unwrap().push(e);
                         }
                     } else {
                         // Dry-run mode: just log what would be copied
-                        info!("Would copy: {:?} → {:?}", prepped_backup_candidate.source_file, backup_path);
+                        info!(
+                            "Would copy: {:?} → {:?}",
+                            prepped_backup_candidate.source_file, backup_path
+                        );
                         files_copied += 1;
                         bytes_copied += prepped_backup_candidate.file_size;
                     }
+                } else if let Ok(required) =
+                    is_backup_required(&prepped_backup_candidate, backup_path, config, dry_run_mode)
+                {
+                    if required {
+                        if dry_run_mode.should_copy_files() {
+                            if let Ok(_) = backup_file(
+                                &prepped_backup_candidate,
+                                backup_path,
+                                config,
+                                dry_run_mode,
+                            ) {
+                                files_copied += 1;
+                                bytes_copied += prepped_backup_candidate.file_size;
+                            } else if let Err(e) = backup_file(
+                                &prepped_backup_candidate,
+                                backup_path,
+                                config,
+                                dry_run_mode,
+                            ) {
+                                errors.lock().unwrap().push(e);
+                            }
+                        } else {
+                            // Dry-run mode: just log what would be copied
+                            info!(
+                                "Would copy: {:?} → {:?}",
+                                prepped_backup_candidate.source_file, backup_path
+                            );
+                            files_copied += 1;
+                            bytes_copied += prepped_backup_candidate.file_size;
+                        }
+                    }
                 }
             }
-        }
 
-        if let Some(pb) = &backup_progress_arc {
-            pb.inc(files_copied);
-            pb.inc_length(bytes_copied);
-        }
-    });
+            if let Some(pb) = &backup_progress_arc {
+                pb.inc(files_copied);
+                pb.inc_length(bytes_copied);
+            }
+        });
 
     let errors = errors.into_inner().unwrap();
     if !errors.is_empty() {
@@ -98,24 +135,26 @@ fn prepare_backup_candidates(
     let errors: Mutex<Vec<BackupError>> = Mutex::new(Vec::new());
     let progress_arc = progress.map(|pb| Arc::new(pb.clone()));
 
-    backup_candidates.into_par_iter().for_each(|(shared_path, candidates)| {
-        for candidate in candidates {
-            match prepare_single_candidate(&candidate, &shared_path, config, dry_run_mode) {
-                Ok(prepped) => {
-                    prepped_backup_candidates.lock().unwrap().push(prepped);
-                    if let Some(pb) = &progress_arc {
-                        pb.inc(1);
+    backup_candidates
+        .into_par_iter()
+        .for_each(|(shared_path, candidates)| {
+            for candidate in candidates {
+                match prepare_single_candidate(&candidate, &shared_path, config, dry_run_mode) {
+                    Ok(prepped) => {
+                        prepped_backup_candidates.lock().unwrap().push(prepped);
+                        if let Some(pb) = &progress_arc {
+                            pb.inc(1);
+                        }
                     }
-                }
-                Err(e) => {
-                    errors.lock().unwrap().push(e);
-                    if let Some(pb) = &progress_arc {
-                        pb.inc(1);
+                    Err(e) => {
+                        errors.lock().unwrap().push(e);
+                        if let Some(pb) = &progress_arc {
+                            pb.inc(1);
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
     let errors = errors.into_inner().unwrap();
     if !errors.is_empty() {
@@ -150,11 +189,9 @@ fn prepare_single_candidate(
     let fs_file_size = get_file_size(candidate)?;
 
     let db_source_record_option = if dry_run_mode.should_update_database() {
-        select_source(&filename, &filepath).map_err(|cause| {
-            BackupError::DatabaseQuery {
-                operation: format!("select source {}{}{}", filepath, MAIN_SEPARATOR, filename),
-                cause,
-            }
+        select_source(&filename, &filepath).map_err(|cause| BackupError::DatabaseQuery {
+            operation: format!("select source {}{}{}", filepath, MAIN_SEPARATOR, filename),
+            cause,
         })?
     } else {
         None
@@ -214,21 +251,35 @@ fn prepare_single_candidate(
     })
 }
 
-fn is_backup_required(prepped_backup: &PreppedBackup, back_up_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<bool> {
+fn is_backup_required(
+    prepped_backup: &PreppedBackup,
+    back_up_path: &PathBuf,
+    config: &Config,
+    dry_run_mode: DryRunMode,
+) -> Result<bool> {
     let exists = fs::exists(back_up_path).unwrap_or(false);
 
     if !exists {
-        debug!("{:?} backup does not exist at {:?}",
-            prepped_backup.source_file, back_up_path);
+        debug!(
+            "{:?} backup does not exist at {:?}",
+            prepped_backup.source_file, back_up_path
+        );
         return Ok(true);
     }
 
-    debug!("{:?} backup exists at {:?}. Checking if update needed",
-        prepped_backup.source_file, back_up_path);
+    debug!(
+        "{:?} backup exists at {:?}. Checking if update needed",
+        prepped_backup.source_file, back_up_path
+    );
     existing_file_needs_updated(prepped_backup, back_up_path, config, dry_run_mode)
 }
 
-fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<bool> {
+fn existing_file_needs_updated(
+    prepped_backup: &PreppedBackup,
+    back_up_path: &PathBuf,
+    config: &Config,
+    dry_run_mode: DryRunMode,
+) -> Result<bool> {
     if !fs::exists(back_up_path).unwrap_or(false) {
         return Ok(true);
     }
@@ -236,10 +287,16 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
     if dry_run_mode.is_quick() {
         let fs_file_size = get_file_size(back_up_path)?;
         if prepped_backup.file_size != fs_file_size {
-            debug!("Quick mode: File size differs, would update: {:?}", back_up_path);
+            debug!(
+                "Quick mode: File size differs, would update: {:?}",
+                back_up_path
+            );
             return Ok(true);
         }
-        debug!("Quick mode: File size matches, would skip: {:?}", back_up_path);
+        debug!(
+            "Quick mode: File size matches, would skip: {:?}",
+            back_up_path
+        );
         return Ok(false);
     }
 
@@ -261,7 +318,10 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
     let dbase_backup_file_option = if dry_run_mode.should_update_database() {
         select_backed_up_file(&back_up_filename, &back_up_filepath).map_err(|cause| {
             BackupError::DatabaseQuery {
-                operation: format!("select backup {}{}{}", back_up_filepath, MAIN_SEPARATOR, back_up_filename),
+                operation: format!(
+                    "select backup {}{}{}",
+                    back_up_filepath, MAIN_SEPARATOR, back_up_filename
+                ),
                 cause,
             }
         })?
@@ -282,19 +342,31 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
                 debug!("Existing backup file needs update: {:?}", back_up_path);
                 Ok(true)
             } else if config.overwrite_backup_if_existing_is_newer {
-                warn!("Existing backup file is newer than database, config forces override: {:?}", back_up_path);
+                warn!(
+                    "Existing backup file is newer than database, config forces override: {:?}",
+                    back_up_path
+                );
                 Ok(true)
             } else {
-                warn!("Existing backup file is newer than database, skipping: {:?}", back_up_path);
+                warn!(
+                    "Existing backup file is newer than database, skipping: {:?}",
+                    back_up_path
+                );
                 Ok(false)
             }
         }
         None => {
-            debug!("Unknown backup file found, checking if same as source: {:?}", back_up_path);
+            debug!(
+                "Unknown backup file found, checking if same as source: {:?}",
+                back_up_path
+            );
             if prepped_backup.file_size == fs_file_size {
                 let fs_hash = hash_file(back_up_path, &config.max_mebibytes_for_hash)?;
                 if *prepped_backup.hash == fs_hash {
-                    info!("Unknown backup matches source, adding to database: {:?}", back_up_path);
+                    info!(
+                        "Unknown backup matches source, adding to database: {:?}",
+                        back_up_path
+                    );
                     if dry_run_mode.should_update_database() {
                         let backup_row = create_backup_row(prepped_backup, back_up_path)?;
                         insert_backup_row(backup_row)?;
@@ -308,11 +380,19 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
     }
 }
 
-fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<()> {
+fn backup_file(
+    prepped_backup: &PreppedBackup,
+    backup_path: &PathBuf,
+    config: &Config,
+    dry_run_mode: DryRunMode,
+) -> Result<()> {
     // Note: In dry-run modes, this function should not be called since we log directly in backup_files()
     // But if it is called, we still respect the dry_run_mode
     if !dry_run_mode.should_copy_files() {
-        debug!("Dry-run mode: Would copy {:?} → {:?}", &prepped_backup.source_file, backup_path);
+        debug!(
+            "Dry-run mode: Would copy {:?} → {:?}",
+            &prepped_backup.source_file, backup_path
+        );
         return Ok(());
     }
 
@@ -329,12 +409,10 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, config: &C
         &prepped_backup.source_file, backup_path
     );
 
-    fs::copy(&prepped_backup.source_file, backup_path).map_err(|cause| {
-        BackupError::FileCopy {
-            from: prepped_backup.source_file.clone(),
-            to: backup_path.clone(),
-            cause,
-        }
+    fs::copy(&prepped_backup.source_file, backup_path).map_err(|cause| BackupError::FileCopy {
+        from: prepped_backup.source_file.clone(),
+        to: backup_path.clone(),
+        cause,
     })?;
 
     debug!("Verifying backup integrity: {:?}", backup_path);
@@ -346,7 +424,10 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, config: &C
             backup_path
         );
         if let Err(e) = fs::remove_file(backup_path) {
-            error!("Failed to delete corrupted backup file {:?}: {}", backup_path, e);
+            error!(
+                "Failed to delete corrupted backup file {:?}: {}",
+                backup_path, e
+            );
         }
         return Err(BackupError::DirectoryRead(format!(
             "Backup verification failed for {:?}: source hash {} != backup hash {}",
@@ -367,7 +448,9 @@ fn create_backup_row(prepped_backup: &PreppedBackup, backup_path: &PathBuf) -> R
         .parent()
         .ok_or_else(|| BackupError::DirectoryRead(format!("No parent for {:?}", backup_path)))?
         .to_str()
-        .ok_or_else(|| BackupError::DirectoryRead(format!("Invalid path encoding for {:?}", backup_path)))?
+        .ok_or_else(|| {
+            BackupError::DirectoryRead(format!("Invalid path encoding for {:?}", backup_path))
+        })?
         .to_string();
 
     Ok(BackupRow {
@@ -408,7 +491,12 @@ fn get_is_source_file_updated(
                 Ok((false, hash))
             } else {
                 if dry_run_mode.should_update_database() {
-                    update_source_row(source_candidate.id, &hash, &backup_file_size, candidate_last_modified)?;
+                    update_source_row(
+                        source_candidate.id,
+                        &hash,
+                        &backup_file_size,
+                        candidate_last_modified,
+                    )?;
                 }
                 Ok((true, hash))
             }

@@ -83,7 +83,8 @@ fn validate_backup_sources(sources: &Vec<BackupSource>) -> Result<()> {
         if !path.is_dir() {
             return Err(BackupError::DirectoryRead(format!(
                 "Backup source #{} is not a directory: {}",
-                idx + 1, source.parent_directory
+                idx + 1,
+                source.parent_directory
             )));
         }
 
@@ -91,7 +92,9 @@ fn validate_backup_sources(sources: &Vec<BackupSource>) -> Result<()> {
         if let Err(e) = fs::read_dir(path) {
             return Err(BackupError::DirectoryRead(format!(
                 "Backup source #{} is not readable: {}\nError: {}",
-                idx + 1, source.parent_directory, e
+                idx + 1,
+                source.parent_directory,
+                e
             )));
         }
 
@@ -146,11 +149,16 @@ fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
                     )));
                 }
 
-                warn!("Backup destination #{} does not exist but will be created: {}", idx + 1, dest);
+                warn!(
+                    "Backup destination #{} does not exist but will be created: {}",
+                    idx + 1,
+                    dest
+                );
             } else {
                 return Err(BackupError::DirectoryRead(format!(
                     "Backup destination #{} has no parent directory: {}",
-                    idx + 1, dest
+                    idx + 1,
+                    dest
                 )));
             }
         } else {
@@ -158,7 +166,8 @@ fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
             if !path.is_dir() {
                 return Err(BackupError::DirectoryRead(format!(
                     "Backup destination #{} exists but is not a directory: {}",
-                    idx + 1, dest
+                    idx + 1,
+                    dest
                 )));
             }
 
@@ -166,7 +175,9 @@ fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
             if let Err(e) = check_writable(path) {
                 return Err(BackupError::DirectoryRead(format!(
                     "Backup destination #{} is not writable: {}\nError: {}",
-                    idx + 1, dest, e
+                    idx + 1,
+                    dest,
+                    e
                 )));
             }
         }
@@ -293,7 +304,10 @@ mod tests {
 
         let result = validate_numeric_values(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_mebibytes_for_hash"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_mebibytes_for_hash"));
     }
 
     #[test]
@@ -371,7 +385,10 @@ mod tests {
 
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("At least one backup source"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("At least one backup source"));
     }
 
     #[test]
@@ -395,7 +412,10 @@ mod tests {
 
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("At least one backup destination"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("At least one backup destination"));
     }
 
     #[test]

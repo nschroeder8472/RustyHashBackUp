@@ -3,6 +3,6 @@ pub mod backup_row;
 pub mod config;
 pub mod config_validator;
 pub mod dry_run_mode;
+pub mod error;
 pub mod prepped_backup;
 pub mod source_row;
-pub mod error;

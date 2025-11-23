@@ -6,18 +6,16 @@ use std::path::PathBuf;
 
 pub fn hash_file(file: &PathBuf, max_mebibytes_bytes: &usize) -> Result<String> {
     let max_bytes = max_mebibytes_bytes * 1048576;
-    let reader = BufReader::new(fs::File::open(file).map_err(|cause| {
-        BackupError::HashError {
+    let reader = BufReader::new(
+        fs::File::open(file).map_err(|cause| BackupError::HashError {
             path: file.clone(),
             cause,
-        }
-    })?);
+        })?,
+    );
 
-    hasher(reader, max_bytes).map_err(|cause| {
-        BackupError::HashError {
-            path: file.clone(),
-            cause,
-        }
+    hasher(reader, max_bytes).map_err(|cause| BackupError::HashError {
+        path: file.clone(),
+        cause,
     })
 }
 

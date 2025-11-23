@@ -5,10 +5,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum BackupError {
     #[error("Failed to read config file '{path}': {cause}")]
-    ConfigRead {
-        path: PathBuf,
-        cause: io::Error,
-    },
+    ConfigRead { path: PathBuf, cause: io::Error },
 
     #[error("Failed to parse config file '{path}': {cause}")]
     ConfigParse {
@@ -43,19 +40,13 @@ pub enum BackupError {
     },
 
     #[error("Failed to hash file '{path}': {cause}")]
-    HashError {
-        path: PathBuf,
-        cause: io::Error,
-    },
+    HashError { path: PathBuf, cause: io::Error },
 
     #[error("Failed to read directory entry: {0}")]
     DirectoryRead(String),
 
     #[error("Failed to get metadata for '{path}': {cause}")]
-    MetadataError {
-        path: PathBuf,
-        cause: io::Error,
-    },
+    MetadataError { path: PathBuf, cause: io::Error },
 
     #[error("File modification time is invalid for '{path}': {cause}")]
     ModificationTimeError {

@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usize) -> Result<Vec<PathBuf>> {
+pub fn get_files_in_path(
+    dir: &String,
+    skip_dirs: &Vec<String>,
+    max_depth: &usize,
+) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let mut dir_walk = WalkDir::new(dir)
         .max_depth(max_depth.to_owned())
@@ -29,36 +33,36 @@ pub fn get_files_in_path(dir: &String, skip_dirs: &Vec<String>, max_depth: &usiz
 }
 
 pub fn get_file_size(file: &PathBuf) -> Result<u64> {
-    let metadata = file.metadata().map_err(|cause| {
-        BackupError::MetadataError {
+    let metadata = file
+        .metadata()
+        .map_err(|cause| BackupError::MetadataError {
             path: file.clone(),
             cause,
-        }
-    })?;
+        })?;
     Ok(metadata.len())
 }
 
 pub fn get_file_last_modified(file: &PathBuf) -> Result<Duration> {
-    let metadata = file.metadata().map_err(|cause| {
-        BackupError::MetadataError {
+    let metadata = file
+        .metadata()
+        .map_err(|cause| BackupError::MetadataError {
             path: file.clone(),
             cause,
-        }
-    })?;
+        })?;
 
-    let modified = metadata.modified().map_err(|cause| {
-        BackupError::MetadataError {
+    let modified = metadata
+        .modified()
+        .map_err(|cause| BackupError::MetadataError {
             path: file.clone(),
             cause,
-        }
-    })?;
+        })?;
 
-    modified.duration_since(UNIX_EPOCH).map_err(|cause| {
-        BackupError::ModificationTimeError {
+    modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|cause| BackupError::ModificationTimeError {
             path: file.clone(),
             cause,
-        }
-    })
+        })
 }
 
 #[cfg(test)]
@@ -128,13 +132,16 @@ mod tests {
         fs::create_dir(&keep_dir).unwrap();
         fs::File::create(keep_dir.join("kept.txt")).unwrap();
 
-        let files = get_files_in_path(&dir_path, &vec!["skip_me".to_string()], &usize::MAX).unwrap();
+        let files =
+            get_files_in_path(&dir_path, &vec!["skip_me".to_string()], &usize::MAX).unwrap();
 
         // Should find file.txt and keep_me/kept.txt, but not skip_me/skipped.txt
         assert_eq!(files.len(), 2);
         assert!(files.iter().any(|f| f.file_name().unwrap() == "file.txt"));
         assert!(files.iter().any(|f| f.file_name().unwrap() == "kept.txt"));
-        assert!(!files.iter().any(|f| f.file_name().unwrap() == "skipped.txt"));
+        assert!(!files
+            .iter()
+            .any(|f| f.file_name().unwrap() == "skipped.txt"));
     }
 
     #[test]

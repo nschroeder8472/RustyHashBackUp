@@ -1,14 +1,14 @@
-use crate::models::error::{BackupError, Result};
 use crate::models::backed_up_file::BackedUpFile;
 use crate::models::backup_row::BackupRow;
+use crate::models::error::{BackupError, Result};
 use crate::models::source_row::SourceRow;
+use log::{debug, info};
 use once_cell::sync::Lazy;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Error, OptionalExtension};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use log::{debug, info};
 
 type DbPool = Pool<SqliteConnectionManager>;
 
@@ -26,20 +26,19 @@ pub fn set_db_pool(db_file: &str) -> Result<()> {
     let is_in_memory = db_file == ":memory:" || db_file.starts_with("file::memory:");
     let use_wal = !is_in_memory;
 
-    let manager = SqliteConnectionManager::file(db_file)
-        .with_init(move |conn| {
-            let mut pragmas = String::from(
-                "PRAGMA busy_timeout = 5000;
+    let manager = SqliteConnectionManager::file(db_file).with_init(move |conn| {
+        let mut pragmas = String::from(
+            "PRAGMA busy_timeout = 5000;
                  PRAGMA synchronous = NORMAL;
-                 PRAGMA foreign_keys = ON;"
-            );
+                 PRAGMA foreign_keys = ON;",
+        );
 
-            if use_wal {
-                pragmas.push_str(" PRAGMA journal_mode = WAL;");
-            }
+        if use_wal {
+            pragmas.push_str(" PRAGMA journal_mode = WAL;");
+        }
 
-            conn.execute_batch(&pragmas)
-        });
+        conn.execute_batch(&pragmas)
+    });
 
     // Build connection pool
     // Pool size: num_physical_cpus + 7 for good mix of reads/writes
@@ -47,9 +46,9 @@ pub fn set_db_pool(db_file: &str) -> Result<()> {
     let pool = r2d2::Pool::builder()
         .max_size(pool_size as u32)
         .build(manager)
-        .map_err(|e| BackupError::DirectoryRead(
-            format!("Failed to create database connection pool: {}", e)
-        ))?;
+        .map_err(|e| {
+            BackupError::DirectoryRead(format!("Failed to create database connection pool: {}", e))
+        })?;
 
     info!("Database pool created with {} connections", pool_size);
 
@@ -62,14 +61,18 @@ pub fn set_db_pool(db_file: &str) -> Result<()> {
 
 fn get_connection() -> Result<r2d2::PooledConnection<SqliteConnectionManager>> {
     let pool_lock = DB_POOL.read().unwrap();
-    let pool = pool_lock.as_ref()
-        .ok_or_else(|| BackupError::DirectoryRead(
-            "Database pool not initialized. Call set_db_pool() first.".to_string()
-        ))?;
+    let pool = pool_lock.as_ref().ok_or_else(|| {
+        BackupError::DirectoryRead(
+            "Database pool not initialized. Call set_db_pool() first.".to_string(),
+        )
+    })?;
 
-    pool.get().map_err(|e| BackupError::DirectoryRead(
-        format!("Failed to get database connection from pool: {}", e)
-    ))
+    pool.get().map_err(|e| {
+        BackupError::DirectoryRead(format!(
+            "Failed to get database connection from pool: {}",
+            e
+        ))
+    })
 }
 
 pub fn setup_database() -> Result<()> {
@@ -114,12 +117,11 @@ pub fn setup_database() -> Result<()> {
     COMMIT;";
 
     let conn = get_connection()?;
-    conn.execute_batch(setup_queries).map_err(|cause| {
-        BackupError::DatabaseQuery {
+    conn.execute_batch(setup_queries)
+        .map_err(|cause| BackupError::DatabaseQuery {
             operation: "create tables".to_string(),
             cause,
-        }
-    })?;
+        })?;
     info!("Database schema initialized successfully");
     Ok(())
 }
@@ -135,7 +137,7 @@ pub fn select_source(
                 WHERE File_Name=?1
                     AND File_Path=?2",
     )?;
-     query
+    query
         .query_row([source_file, source_path], |row| {
             Ok(SourceRow {
                 id: row.get(0)?,
@@ -209,27 +211,30 @@ pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) -> Res
     conn.execute(
         "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
         (last_modified.as_secs(), row_id),
-    ).map_err(|cause| {
-        BackupError::DatabaseUpdate {
-            table: "Source_Files".to_string(),
-            id: row_id as i64,
-            cause,
-        }
+    )
+    .map_err(|cause| BackupError::DatabaseUpdate {
+        table: "Source_Files".to_string(),
+        id: row_id as i64,
+        cause,
     })?;
     Ok(())
 }
 
-pub fn update_source_row(row_id: i32, hash: &String, file_size: &u64, last_modified: &Duration) -> Result<()> {
+pub fn update_source_row(
+    row_id: i32,
+    hash: &String,
+    file_size: &u64,
+    last_modified: &Duration,
+) -> Result<()> {
     let conn = get_connection()?;
     conn.execute(
         "UPDATE Source_Files SET Hash=?1, File_Size=?2, Last_Modified=?3 WHERE ID=?4",
         (hash, file_size, last_modified.as_secs(), row_id),
-    ).map_err(|cause| {
-        BackupError::DatabaseUpdate {
-            table: "Source_Files".to_string(),
-            id: row_id as i64,
-            cause,
-        }
+    )
+    .map_err(|cause| BackupError::DatabaseUpdate {
+        table: "Source_Files".to_string(),
+        id: row_id as i64,
+        cause,
     })?;
     Ok(())
 }
@@ -248,12 +253,11 @@ pub fn insert_backup_row(backup_row: BackupRow) -> Result<()> {
             &backup_row.file_path,
             backup_row.last_modified.as_secs(),
         ),
-    ).map_err(|cause| {
-        BackupError::DatabaseInsert {
-            table: "Backup_Files".to_string(),
-            file: backup_row.file_name.clone(),
-            cause,
-        }
+    )
+    .map_err(|cause| BackupError::DatabaseInsert {
+        table: "Backup_Files".to_string(),
+        file: backup_row.file_name.clone(),
+        cause,
     })?;
     debug!("Inserted backup record: {}", backup_row.file_name);
     Ok(())
@@ -372,7 +376,8 @@ mod tests {
     fn test_select_source_returns_none_for_missing() {
         setup_test_db();
 
-        let result = select_source(&"nonexistent.txt".to_string(), &"/nowhere".to_string()).unwrap();
+        let result =
+            select_source(&"nonexistent.txt".to_string(), &"/nowhere".to_string()).unwrap();
 
         assert!(result.is_none());
     }
@@ -495,8 +500,8 @@ mod tests {
         insert_backup_row(backup_row).unwrap();
 
         // Select backed up file (should join with source to get hash)
-        let result = select_backed_up_file(&"joined.txt".to_string(), &"/backup".to_string())
-            .unwrap();
+        let result =
+            select_backed_up_file(&"joined.txt".to_string(), &"/backup".to_string()).unwrap();
 
         assert!(result.is_some());
         let backed_up = result.unwrap();
@@ -511,8 +516,8 @@ mod tests {
     fn test_select_backed_up_file_returns_none_for_missing() {
         setup_test_db();
 
-        let result = select_backed_up_file(&"missing.txt".to_string(), &"/nowhere".to_string())
-            .unwrap();
+        let result =
+            select_backed_up_file(&"missing.txt".to_string(), &"/nowhere".to_string()).unwrap();
 
         assert!(result.is_none());
     }

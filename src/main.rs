@@ -20,10 +20,20 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short = 'c', long = "config", default_value = "config.json", env = "RUSTYHASHBACKUP_CONFIG")]
+    #[arg(
+        short = 'c',
+        long = "config",
+        default_value = "config.json",
+        env = "RUSTYHASHBACKUP_CONFIG"
+    )]
     config_file: String,
 
-    #[arg(short = 'l', long = "log-level", default_value = "info", env = "LOG_LEVEL")]
+    #[arg(
+        short = 'l',
+        long = "log-level",
+        default_value = "info",
+        env = "LOG_LEVEL"
+    )]
     log_level: String,
 
     #[arg(short = 'q', long = "quiet")]
@@ -58,8 +68,7 @@ fn main() -> Result<()> {
         .init();
 
     info!("RustyHashBackup starting...");
-    let config: Config = setup_config(args.config_file)
-        .context("Failed to load configuration")?;
+    let config: Config = setup_config(args.config_file).context("Failed to load configuration")?;
     debug!("Loaded config: {:?}", &config);
 
     // If validate-only flag is set, exit after successful validation
@@ -84,11 +93,9 @@ fn main() -> Result<()> {
         .build_global()
         .context("Failed to build thread pool")?;
 
-    set_db_pool(&config.database_file)
-        .context("Failed to initialize database connection pool")?;
+    set_db_pool(&config.database_file).context("Failed to initialize database connection pool")?;
 
-    setup_database()
-        .context("Failed to set up database schema")?;
+    setup_database().context("Failed to set up database schema")?;
 
     // Initialize progress tracking
     let multi_progress = if !args.quiet {
@@ -99,14 +106,22 @@ fn main() -> Result<()> {
 
     // Phase 1: File Discovery
     let discovery_progress = multi_progress.as_ref().map(|mp| {
-        mp.add(create_spinner(&format!("{}[1/3] Discovering source files...", dry_run_mode.progress_prefix())))
+        mp.add(create_spinner(&format!(
+            "{}[1/3] Discovering source files...",
+            dry_run_mode.progress_prefix()
+        )))
     });
 
     let backup_candidates = get_source_files(&config.backup_sources, discovery_progress.as_ref())?;
 
     if let Some(progress) = discovery_progress {
         let total: usize = backup_candidates.values().map(|v| v.len()).sum();
-        progress.finish_with_message(format!("{}[1/3] Found {} files across {} directories", dry_run_mode.progress_prefix(), total, backup_candidates.len()));
+        progress.finish_with_message(format!(
+            "{}[1/3] Found {} files across {} directories",
+            dry_run_mode.progress_prefix(),
+            total,
+            backup_candidates.len()
+        ));
     }
 
     if backup_candidates.is_empty() {
@@ -118,12 +133,22 @@ fn main() -> Result<()> {
     let total_files: u64 = backup_candidates.values().map(|v| v.len() as u64).sum();
 
     let prep_progress = multi_progress.as_ref().map(|mp| {
-        mp.add(create_progress_bar(total_files, &format!("{}[2/3] Preparing backups", dry_run_mode.progress_prefix())))
+        mp.add(create_progress_bar(
+            total_files,
+            &format!("{}[2/3] Preparing backups", dry_run_mode.progress_prefix()),
+        ))
     });
 
     let backup_progress = multi_progress.as_ref().map(|mp| {
-        let action = if dry_run_mode.should_copy_files() { "Copying files" } else { "Simulating file copy" };
-        mp.add(create_progress_bar_with_bytes(total_files, &format!("{}[3/3] {}", dry_run_mode.progress_prefix(), action)))
+        let action = if dry_run_mode.should_copy_files() {
+            "Copying files"
+        } else {
+            "Simulating file copy"
+        };
+        mp.add(create_progress_bar_with_bytes(
+            total_files,
+            &format!("{}[3/3] {}", dry_run_mode.progress_prefix(), action),
+        ))
     });
 
     backup_files(
@@ -140,7 +165,11 @@ fn main() -> Result<()> {
     }
     if let Some(progress) = backup_progress {
         let message = if dry_run_mode.is_dry_run() {
-            format!("{}[3/3] Dry run completed - {} files simulated", dry_run_mode.progress_prefix(), total_files)
+            format!(
+                "{}[3/3] Dry run completed - {} files simulated",
+                dry_run_mode.progress_prefix(),
+                total_files
+            )
         } else {
             format!("[3/3] Backup completed - {} files processed", total_files)
         };
@@ -159,7 +188,10 @@ fn get_source_files(
     backup_sources: &Vec<BackupSource>,
     progress: Option<&indicatif::ProgressBar>,
 ) -> Result<HashMap<PathBuf, Vec<PathBuf>>> {
-    info!("Discovering files in {} source directories...", backup_sources.len());
+    info!(
+        "Discovering files in {} source directories...",
+        backup_sources.len()
+    );
 
     let mut result_map = HashMap::<PathBuf, Vec<PathBuf>>::new();
     let mut total_files = 0;
@@ -169,8 +201,12 @@ fn get_source_files(
             pb.set_message(format!("Scanning: {}", source.parent_directory));
         }
 
-        let files = get_files_in_path(&source.parent_directory, &source.skip_dirs, &source.max_depth)
-            .with_context(|| format!("Failed to read directory: {}", source.parent_directory))?;
+        let files = get_files_in_path(
+            &source.parent_directory,
+            &source.skip_dirs,
+            &source.max_depth,
+        )
+        .with_context(|| format!("Failed to read directory: {}", source.parent_directory))?;
 
         if !files.is_empty() {
             let file_count = files.len();
@@ -178,11 +214,18 @@ fn get_source_files(
             result_map.insert(PathBuf::from(&source.parent_directory), files);
 
             if let Some(pb) = progress {
-                pb.set_message(format!("Found {} files in {}", file_count, source.parent_directory));
+                pb.set_message(format!(
+                    "Found {} files in {}",
+                    file_count, source.parent_directory
+                ));
             }
         }
     }
 
-    info!("Found {} files across {} directories", total_files, result_map.len());
+    info!(
+        "Found {} files across {} directories",
+        total_files,
+        result_map.len()
+    );
     Ok(result_map)
 }
