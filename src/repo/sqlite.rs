@@ -23,11 +23,9 @@ pub fn set_db_pool(db_file: &str) -> Result<()> {
 
     info!("Initializing database connection pool: {}", db_file);
 
-    // Determine if we should enable WAL mode (not for in-memory databases)
     let is_in_memory = db_file == ":memory:" || db_file.starts_with("file::memory:");
     let use_wal = !is_in_memory;
 
-    // Create connection manager with configuration
     let manager = SqliteConnectionManager::file(db_file)
         .with_init(move |conn| {
             let mut pragmas = String::from(
@@ -36,7 +34,6 @@ pub fn set_db_pool(db_file: &str) -> Result<()> {
                  PRAGMA foreign_keys = ON;"
             );
 
-            // Enable WAL mode for better concurrency (but not for in-memory databases)
             if use_wal {
                 pragmas.push_str(" PRAGMA journal_mode = WAL;");
             }
@@ -78,7 +75,7 @@ fn get_connection() -> Result<r2d2::PooledConnection<SqliteConnectionManager>> {
 pub fn setup_database() -> Result<()> {
     info!("Initializing database schema");
     let setup_queries = "BEGIN;
-    pragma ENCODING = 'UTF-8';
+    PRAGMA ENCODING = 'UTF-8';
 
     CREATE TABLE IF NOT EXISTS Source_Files(
         ID            integer not null
@@ -138,7 +135,7 @@ pub fn select_source(
                 WHERE File_Name=?1
                     AND File_Path=?2",
     )?;
-    let source_row = query
+     query
         .query_row([source_file, source_path], |row| {
             Ok(SourceRow {
                 id: row.get(0)?,
@@ -149,8 +146,7 @@ pub fn select_source(
                 last_modified: Duration::from_secs(row.get(5)?),
             })
         })
-        .optional();
-    source_row
+        .optional()
 }
 
 pub fn select_backed_up_file(
@@ -165,7 +161,7 @@ pub fn select_backed_up_file(
             ON sf.ID = bf.Source_ID
             WHERE bf.File_Name=?1 AND bf.File_Path=?2",
     )?;
-    let backed_up_file = query
+    query
         .query_row([filename, filepath], |row| {
             Ok(BackedUpFile {
                 file_name: row.get(0)?,
@@ -174,40 +170,38 @@ pub fn select_backed_up_file(
                 hash: row.get(3)?,
             })
         })
-        .optional();
-    backed_up_file
+        .optional()
 }
 
-pub fn insert_source_row<'a>(source_row: &SourceRow) -> rusqlite::Result<i32, Error> {
-    let conn = get_connection().map_err(|_| Error::InvalidParameterName("pool".to_string()))?;
+pub fn insert_source_row(source_row: &SourceRow) -> Result<i32> {
+    let conn = get_connection()?;
     debug!(
         "Inserting source record: {}/{}",
-        &source_row.file_path, &source_row.file_name
+        source_row.file_path, source_row.file_name
     );
-    conn.execute(
+
+    conn.query_row(
         "INSERT INTO Source_Files (File_Name, File_Path, Hash, File_Size, Last_Modified)
-                VALUES (?1, ?2, ?3, ?4, ?5)
-                ON CONFLICT (File_Name, File_Path) DO UPDATE SET
-                Hash=excluded.Hash,
-                File_Size=excluded.File_Size,
-                Last_Modified=excluded.Last_Modified;",
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (File_Name, File_Path) DO UPDATE SET
+             Hash = excluded.Hash,
+             File_Size = excluded.File_Size,
+             Last_Modified = excluded.Last_Modified
+         RETURNING ID",
         (
             &source_row.file_name,
             &source_row.file_path,
             &source_row.hash,
             &source_row.file_size,
-            &source_row.last_modified.as_secs(),
+            source_row.last_modified.as_secs(),
         ),
-    )?;
-
-    conn.query_row(
-        "SELECT ID
-            FROM Source_Files
-            WHERE File_Name=?1
-                AND File_Path=?2",
-        (&source_row.file_name, &source_row.file_path),
         |row| row.get(0),
     )
+    .map_err(|cause| BackupError::DatabaseInsert {
+        table: "Source_Files".to_string(),
+        file: format!("{}/{}", source_row.file_path, source_row.file_name),
+        cause,
+    })
 }
 
 pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) -> Result<()> {

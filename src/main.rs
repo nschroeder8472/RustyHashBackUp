@@ -23,7 +23,7 @@ struct Cli {
     #[arg(short = 'c', long = "config", default_value = "config.json", env = "RUSTYHASHBACKUP_CONFIG")]
     config_file: String,
 
-    #[arg(short = 'l', long = "log-level", default_value = "info")]
+    #[arg(short = 'l', long = "log-level", default_value = "info", env = "LOG_LEVEL")]
     log_level: String,
 
     #[arg(short = 'q', long = "quiet")]

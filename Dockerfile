@@ -13,4 +13,5 @@ RUN mkdir /destination
 COPY --from=builder /usr/src/app/target/release/RustyHashBackUp ./
 ENV RUST_BACKTRACE=full
 ENV RUSTYHASHBACKUP_CONFIG=/data/config.json
+ENV LOG_LEVEL=info
 CMD ["./RustyHashBackUp"]

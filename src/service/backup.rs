@@ -149,7 +149,6 @@ fn prepare_single_candidate(
     let fs_last_modified = get_file_last_modified(candidate)?;
     let fs_file_size = get_file_size(candidate)?;
 
-    // In Quick dry-run mode, skip database lookups
     let db_source_record_option = if dry_run_mode.should_update_database() {
         select_source(&filename, &filepath).map_err(|cause| {
             BackupError::DatabaseQuery {
@@ -171,11 +170,9 @@ fn prepare_single_candidate(
         )?;
         (updated, hash, db_source_record.id)
     } else {
-        // Hash the file if we should (Full mode or normal operation)
         let hash = if dry_run_mode.should_hash() {
             hash_file(candidate, &config.max_mebibytes_for_hash)?
         } else {
-            // Quick mode: use placeholder hash
             debug!("Quick mode: skipping hash for {:?}", candidate);
             String::from("dry-run-quick-no-hash")
         };
@@ -189,12 +186,7 @@ fn prepare_single_candidate(
                 file_size: fs_file_size,
                 last_modified: fs_last_modified,
             };
-            insert_source_row(&source_row).map_err(|cause| {
-                BackupError::DatabaseQuery {
-                    operation: format!("insert source {}{}{}", filepath, MAIN_SEPARATOR, filename),
-                    cause,
-                }
-            })?
+            insert_source_row(&source_row)?
         } else {
             // Dry-run mode: use placeholder ID
             0
@@ -225,23 +217,15 @@ fn prepare_single_candidate(
 fn is_backup_required(prepped_backup: &PreppedBackup, back_up_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<bool> {
     let exists = fs::exists(back_up_path).unwrap_or(false);
 
-    if prepped_backup.updated && !exists {
-        debug!("{:?} Source file updated, backup does not exist at {:?}",
+    if !exists {
+        debug!("{:?} backup does not exist at {:?}",
             prepped_backup.source_file, back_up_path);
         return Ok(true);
-    } else if prepped_backup.updated && exists {
-        debug!("{:?} Source file updated, backup exists at {:?}. Checking if update needed",
-                 prepped_backup.source_file, back_up_path);
-        return existing_file_needs_updated(prepped_backup, back_up_path, config, dry_run_mode);
-    } else if !prepped_backup.updated && !exists {
-        debug!("{:?} Source file not updated, backup does not exist at {:?}",
-                 prepped_backup.source_file, back_up_path);
-        return Ok(true);
-    } else {
-        debug!("{:?} Source file not updated, backup exists at {:?}. Checking if update needed",
-                 prepped_backup.source_file, back_up_path);
-        return existing_file_needs_updated(prepped_backup, back_up_path, config, dry_run_mode);
     }
+
+    debug!("{:?} backup exists at {:?}. Checking if update needed",
+        prepped_backup.source_file, back_up_path);
+    existing_file_needs_updated(prepped_backup, back_up_path, config, dry_run_mode)
 }
 
 fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &PathBuf, config: &Config, dry_run_mode: DryRunMode) -> Result<bool> {
@@ -249,7 +233,6 @@ fn existing_file_needs_updated(prepped_backup: &PreppedBackup, back_up_path: &Pa
         return Ok(true);
     }
 
-    // In Quick mode, skip database lookups and hashing - just check file size and modified time
     if dry_run_mode.is_quick() {
         let fs_file_size = get_file_size(back_up_path)?;
         if prepped_backup.file_size != fs_file_size {
@@ -354,17 +337,10 @@ fn backup_file(prepped_backup: &PreppedBackup, backup_path: &PathBuf, config: &C
         }
     })?;
 
-    // Verify backup integrity by hashing the copied file
-    // This ensures the backup matches the source and catches:
-    // - File corruption during copy
-    // - Disk errors
-    // - Network issues (for network drives)
-    // - Hardware failures
     debug!("Verifying backup integrity: {:?}", backup_path);
     let backup_hash = hash_file(backup_path, &config.max_mebibytes_for_hash)?;
 
     if backup_hash != prepped_backup.hash {
-        // Verification failed - delete the corrupted backup
         warn!(
             "Backup verification FAILED for {:?}: hash mismatch! Deleting corrupted backup.",
             backup_path

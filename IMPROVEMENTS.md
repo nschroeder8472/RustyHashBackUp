@@ -27,6 +27,9 @@ The following improvements have been successfully implemented:
 13. **Cross-Platform Paths** (Issue #6) - Fixed hardcoded Unix paths, added env var support, platform-specific error messages
 14. **Reduced Unwrap Usage** (Issue #9) - Replaced most .unwrap() calls with proper error handling
 
+### Code Quality Items ✅
+15. **Verbose Boolean Logic** (Issue #7) - Simplified is_backup_required function from 4 branches to 2, reducing complexity
+
 ### Additional Improvements
 - Added dry-run modes (quick and full)
 - Platform-specific error messages (Windows vs Unix)
@@ -131,10 +134,33 @@ fn format_vec_u8_to_string(bs: &[u8]) -> String {
 
 ## Code Quality Issues
 
-### 7. Verbose Boolean Logic
-**Location:** `src/service/backup.rs:115-133`
+### ~~7. Verbose Boolean Logic~~ ✅ COMPLETED
+**Location:** `src/service/backup.rs:225-236`
 
 **Issue:** The `is_backup_required` function has redundant conditions that could be simplified.
+
+**Status:** ✅ **FIXED** - Simplified from 4 conditional branches to 2, reducing function from 19 lines to 12 lines. The key insight was that the `updated` flag doesn't affect the decision - only whether the backup exists matters.
+
+**Previous Code:**
+```rust
+if prepped_backup.updated && !exists {
+    return Ok(true);
+} else if prepped_backup.updated && exists {
+    return existing_file_needs_updated(...);
+} else if !prepped_backup.updated && !exists {
+    return Ok(true);
+} else {
+    return existing_file_needs_updated(...);
+}
+```
+
+**Current Code:**
+```rust
+if !exists {
+    return Ok(true);
+}
+existing_file_needs_updated(...)
+```
 
 **Recommendation:** Refactor into a truth table or simpler conditional structure.
 
@@ -366,9 +392,8 @@ fn format_vec_u8_to_string(bs: &[u8]) -> String {
 23. Improve type safety (Issue #11)
 24. Optimize string allocations (Issue #10)
 25. Add hash caching (Issue #24)
-26. Verbose boolean logic simplification (Issue #7)
-27. Path traversal validation (Issue #27)
-28. Log sanitization for sensitive paths (Issue #29)
+26. Path traversal validation (Issue #27)
+27. Log sanitization for sensitive paths (Issue #29)
 
 ---
 
