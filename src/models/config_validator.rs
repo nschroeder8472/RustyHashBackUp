@@ -3,6 +3,7 @@ use crate::models::error::{BackupError, Result};
 use log::{info, warn};
 use std::fs;
 use std::path::Path;
+use std::str::FromStr;
 
 /// Validates the entire configuration
 pub fn validate_config(config: &Config) -> Result<()> {
@@ -19,6 +20,9 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     // Validate database file
     validate_database_path(&config.database_file)?;
+
+    // Validate schedule if present
+    validate_schedule(config)?;
 
     // Check for conflicting flags
     check_conflicting_flags(config)?;
@@ -253,6 +257,25 @@ fn validate_database_path(db_file: &String) -> Result<()> {
     Ok(())
 }
 
+/// Validate schedule configuration
+fn validate_schedule(config: &Config) -> Result<()> {
+    if let Some(schedule_str) = &config.schedule {
+        // Try to parse the cron expression
+        match cron::Schedule::from_str(schedule_str) {
+            Ok(_) => {
+                info!("Schedule validated: {}", schedule_str);
+            }
+            Err(e) => {
+                return Err(BackupError::DirectoryRead(format!(
+                    "Invalid cron expression in schedule: {}\nError: {}\nExample: '0 2 * * *' for daily at 2am",
+                    schedule_str, e
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Check for conflicting configuration flags
 fn check_conflicting_flags(config: &Config) -> Result<()> {
     // If force_overwrite_backup is true, other backup flags are ignored
@@ -338,6 +361,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
@@ -361,6 +386,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
@@ -381,6 +408,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
@@ -408,6 +437,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
@@ -436,6 +467,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
@@ -460,6 +493,8 @@ mod tests {
             force_overwrite_backup: true,
             overwrite_backup_if_existing_is_newer: true, // Conflicting with force_overwrite
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         // Note: This currently just logs a warning, doesn't error
@@ -486,11 +521,110 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         };
 
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("max_depth of 0"));
+    }
+
+    #[test]
+    fn test_accepts_valid_cron_schedule() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: String::new(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+            schedule: Some("0 0 2 * * *".to_string()), // Daily at 2am
+            run_on_startup: true,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rejects_invalid_cron_schedule() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let config = Config {
+            database_file: String::new(),
+            max_mebibytes_for_hash: 1,
+            backup_sources: vec![BackupSource {
+                parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                max_depth: 10,
+                skip_dirs: vec![],
+            }],
+            backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+            skip_source_hash_check_if_newer: true,
+            force_overwrite_backup: false,
+            overwrite_backup_if_existing_is_newer: false,
+            max_threads: 4,
+            schedule: Some("invalid cron".to_string()), // Invalid
+            run_on_startup: true,
+        };
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid cron expression"));
+    }
+
+    #[test]
+    fn test_accepts_various_valid_cron_expressions() {
+        let temp_source = TempDir::new().unwrap();
+        let temp_dest = TempDir::new().unwrap();
+
+        let valid_expressions = vec![
+            "0 0 2 * * *",        // Daily at 2am
+            "0 */30 * * * *",     // Every 30 minutes
+            "0 0 */6 * * *",      // Every 6 hours
+            "0 0 0 * * 1",        // Every Monday at midnight
+            "0 0 9,17 * * 1-5",   // Weekdays at 9am and 5pm
+        ];
+
+        for expr in valid_expressions {
+            let config = Config {
+                database_file: String::new(),
+                max_mebibytes_for_hash: 1,
+                backup_sources: vec![BackupSource {
+                    parent_directory: temp_source.path().to_str().unwrap().to_string(),
+                    max_depth: 10,
+                    skip_dirs: vec![],
+                }],
+                backup_destinations: vec![temp_dest.path().to_str().unwrap().to_string()],
+                skip_source_hash_check_if_newer: true,
+                force_overwrite_backup: false,
+                overwrite_backup_if_existing_is_newer: false,
+                max_threads: 4,
+                schedule: Some(expr.to_string()),
+                run_on_startup: true,
+            };
+
+            let result = validate_config(&config);
+            assert!(
+                result.is_ok(),
+                "Expected cron expression '{}' to be valid, but got error: {:?}",
+                expr,
+                result
+            );
+        }
     }
 
     fn create_test_config() -> Config {
@@ -503,6 +637,8 @@ mod tests {
             force_overwrite_backup: false,
             overwrite_backup_if_existing_is_newer: false,
             max_threads: 4,
+            schedule: None,
+            run_on_startup: true,
         }
     }
 }

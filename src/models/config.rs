@@ -20,6 +20,10 @@ pub struct Config {
     pub overwrite_backup_if_existing_is_newer: bool,
     #[serde(default = "default_max_threads")]
     pub max_threads: usize,
+    #[serde(default)]
+    pub schedule: Option<String>,
+    #[serde(default = "bool_true")]
+    pub run_on_startup: bool,
 }
 
 #[derive(Debug, Deserialize)]
