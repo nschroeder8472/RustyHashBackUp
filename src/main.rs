@@ -1,3 +1,5 @@
+mod api_routes;
+mod api_state;
 mod models;
 mod repo;
 mod service;
@@ -18,7 +20,34 @@ use repo::sqlite::setup_database;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[macro_use] extern crate rocket;
+
+use api_state::AppState;
+
+#[launch]
+fn rocket() -> _ {
+    // Initialize application state
+    let app_state = AppState::new();
+
+    rocket::build()
+        .manage(app_state)
+        .mount("/api", routes![
+            api_routes::get_config,
+            api_routes::set_config,
+            api_routes::get_status,
+            api_routes::start_backup,
+            api_routes::stop_backup,
+            api_routes::get_history,
+            api_routes::progress_events,
+            api_routes::validate_config_endpoint,
+            api_routes::health_check,
+        ])
+}
+
+// CLI functionality for backwards compatibility
 #[derive(Parser)]
+#[command(name = "RustyHashBackup")]
+#[command(about = "Hash-based file backup utility", long_about = None)]
 struct Cli {
     #[arg(
         short = 'c',
@@ -50,12 +79,15 @@ struct Cli {
 
     #[arg(short = 'o', long = "once")]
     once: bool,
+
+    /// Run in API mode instead of CLI mode
+    #[arg(long = "api")]
+    api_mode: bool,
 }
 
-fn main() -> Result<()> {
+fn cli_main() -> Result<()> {
     let args = Cli::parse();
 
-    // Initialize logger with configurable log level
     let log_level = match args.log_level.to_lowercase().as_str() {
         "trace" => log::LevelFilter::Trace,
         "debug" => log::LevelFilter::Debug,
@@ -74,13 +106,11 @@ fn main() -> Result<()> {
     let config: Config = setup_config(args.config_file).context("Failed to load configuration")?;
     debug!("Loaded config: {:?}", &config);
 
-    // If validate-only flag is set, exit after successful validation
     if args.validate_only {
         info!("Configuration is valid. Exiting (--validate-only mode).");
         return Ok(());
     }
 
-    // Determine dry-run mode
     let dry_run_mode = if args.dry_run_full {
         info!("Running in DRY RUN FULL mode - will simulate all operations including hashing");
         DryRunMode::Full
@@ -105,7 +135,7 @@ fn main() -> Result<()> {
 
     if run_once {
         // One-time execution
-        run_backup(&config, dry_run_mode, args.quiet)?;
+        run_backup(&config, dry_run_mode, args.quiet, None)?;
     } else {
         // Scheduled execution
         run_scheduled(&config, dry_run_mode, args.quiet)?;
@@ -114,16 +144,27 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Runs a single backup operation
-fn run_backup(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Result<()> {
-    // Initialize progress tracking
+fn run_backup(config: &Config, dry_run_mode: DryRunMode, quiet: bool, state: Option<&AppState>) -> Result<()> {
     let multi_progress = if !quiet {
         Some(MultiProgress::new())
     } else {
         None
     };
 
-    // Phase 1: File Discovery
+    // Update API state if provided
+    if let Some(st) = state {
+        st.set_progress(Some(models::api::BackupProgress {
+            phase: 1,
+            phase_description: "Discovering source files".to_string(),
+            files_processed: 0,
+            total_files: 0,
+            bytes_processed: None,
+            total_bytes: None,
+            percentage: 0.0,
+            current_file: None,
+        }));
+    }
+
     let discovery_progress = multi_progress.as_ref().map(|mp| {
         mp.add(create_spinner(&format!(
             "{}[1/3] Discovering source files...",
@@ -217,7 +258,6 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
 
     info!("Starting scheduled backup mode with schedule: {}", schedule_str);
 
-    // Set up signal handler for graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
@@ -227,15 +267,13 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
     })
     .context("Failed to set Ctrl+C handler")?;
 
-    // Run immediately on startup if configured
     if config.run_on_startup {
         info!("Running initial backup on startup...");
-        if let Err(e) = run_backup(config, dry_run_mode, quiet) {
+        if let Err(e) = run_backup(config, dry_run_mode, quiet, None) {
             warn!("Initial backup failed: {}", e);
         }
     }
 
-    // Main scheduling loop
     while running.load(Ordering::SeqCst) {
         let now = Utc::now();
 
@@ -258,7 +296,7 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
             // Check if we've reached the scheduled time
             if Utc::now() >= next && running.load(Ordering::SeqCst) {
                 info!("Running scheduled backup...");
-                if let Err(e) = run_backup(config, dry_run_mode, quiet) {
+                if let Err(e) = run_backup(config, dry_run_mode, quiet, None) {
                     warn!("Scheduled backup failed: {}", e);
                 }
             }

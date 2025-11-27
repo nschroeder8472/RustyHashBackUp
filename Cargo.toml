@@ -27,11 +27,13 @@ thiserror = "2.0"
 anyhow = "1.0"
 r2d2 = "0.8"
 r2d2_sqlite = "0.31.0"
-cron = "0.12"
+cron = "0.15.0"
 chrono = "0.4"
 ctrlc = "3.4"
+rocket = { version = "0.5.1", features = ["json"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+tokio = { version = "1.42", features = ["sync"] }
 
 [dev-dependencies]
-mockall = "0.14"
 tempfile = "3.8"
 serial_test = "3.2"
