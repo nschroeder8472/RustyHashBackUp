@@ -1,0 +1,21 @@
+{
+    "_comment": "Example configuration for RustyHashBackup",
+    "_note": "For Docker: Use absolute paths like /data/backup.db, /source, /destination",
+    "_note2": "For native: Use relative paths like ./backup.db, ./source, ./destination",
+
+    "database_file": "./backup.db",
+    "max_mebibytes_for_hash": 1,
+    "skip_source_hash_check_if_newer": false,
+    "force_overwrite_backup": false,
+    "overwrite_backup_if_existing_is_newer": false,
+    "max_threads": 3,
+    "backup_sources": [
+        {
+            "parent_directory": "./source",
+            "max_depth": 1000
+        }
+    ],
+    "backup_destinations": [
+        "./destination"
+    ]
+}
