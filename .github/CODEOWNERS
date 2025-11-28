@@ -1,0 +1,14 @@
+# CODEOWNERS file
+#
+# This file defines code ownership for the RustyHashBackup project.
+# Code owners are automatically requested for review when someone opens a pull request
+# that modifies files they own.
+#
+# More info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repository
+* @nschroeder8472
+
+# Specific overrides (if needed in the future)
+# /docs/ @nschroeder8472 @documentation-team
+# *.rs @nschroeder8472 @rust-team
