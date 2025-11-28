@@ -1,11 +1,11 @@
 use crate::models::config_validator::validate_config;
 use crate::models::error::{BackupError, Result};
 use log::info;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub database_file: String,
     #[serde(default = "usize_one")]
@@ -26,7 +26,7 @@ pub struct Config {
     pub run_on_startup: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupSource {
     pub parent_directory: String,
     #[serde(default = "usize_max")]
