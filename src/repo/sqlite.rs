@@ -127,8 +127,8 @@ pub fn setup_database() -> Result<()> {
 }
 
 pub fn select_source(
-    source_file: &String,
-    source_path: &String,
+    source_file: &str,
+    source_path: &str,
 ) -> rusqlite::Result<Option<SourceRow>> {
     let conn = get_connection().map_err(|_| Error::InvalidParameterName("pool".to_string()))?;
     let mut query = conn.prepare(
@@ -152,8 +152,8 @@ pub fn select_source(
 }
 
 pub fn select_backed_up_file(
-    filename: &String,
-    filepath: &String,
+    filename: &str,
+    filepath: &str,
 ) -> rusqlite::Result<Option<BackedUpFile>> {
     let conn = get_connection().map_err(|_| Error::InvalidParameterName("pool".to_string()))?;
     let mut query = conn.prepare(

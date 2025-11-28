@@ -25,6 +25,7 @@ pub fn backup_files(
     prep_progress: Option<&ProgressBar>,
     backup_progress: Option<&ProgressBar>,
     dry_run_mode: DryRunMode,
+    state: Option<&crate::api_state::AppState>,
 ) -> Result<()> {
     info!(
         "Starting backup to {} destinations...",
@@ -32,39 +33,63 @@ pub fn backup_files(
     );
 
     let prepped_backup_candidates =
-        prepare_backup_candidates(backup_candidates, config, prep_progress, dry_run_mode)?;
+        prepare_backup_candidates(backup_candidates, config, prep_progress, dry_run_mode, state)?;
     info!(
         "Prepared {} files for backup",
         prepped_backup_candidates.len()
     );
 
+    let total_files = prepped_backup_candidates.len() as u64;
+
+    // Update API state: Starting backup phase
+    if let Some(st) = state {
+        st.set_progress(Some(crate::models::api::BackupProgress {
+            phase: 3,
+            phase_description: "Copying files".to_string(),
+            files_processed: 0,
+            total_files,
+            bytes_processed: Some(0),
+            total_bytes: Some(0), // Will be updated as we process
+            percentage: 0.0,
+            current_file: None,
+        }));
+    }
+
     let errors: Mutex<Vec<BackupError>> = Mutex::new(Vec::new());
     let backup_progress_arc = backup_progress.map(|pb| Arc::new(pb.clone()));
+    let backup_files_processed = Arc::new(Mutex::new(0u64));
+    let backup_bytes_processed = Arc::new(Mutex::new(0u64));
 
     prepped_backup_candidates
         .into_par_iter()
         .for_each(|prepped_backup_candidate| {
+            // Check stop signal
+            if let Some(st) = state {
+                if st.is_stop_requested() {
+                    warn!("Backup cancelled by user");
+                    return;
+                }
+            }
+
             let mut files_copied = 0u64;
             let mut bytes_copied = 0u64;
 
             for backup_path in &prepped_backup_candidate.backup_paths {
                 if config.force_overwrite_backup {
                     if dry_run_mode.should_copy_files() {
-                        if let Ok(_) = backup_file(
+                        match backup_file(
                             &prepped_backup_candidate,
                             backup_path,
                             config,
                             dry_run_mode,
                         ) {
-                            files_copied += 1;
-                            bytes_copied += prepped_backup_candidate.file_size;
-                        } else if let Err(e) = backup_file(
-                            &prepped_backup_candidate,
-                            backup_path,
-                            config,
-                            dry_run_mode,
-                        ) {
-                            errors.lock().unwrap().push(e);
+                            Ok(_) => {
+                                files_copied += 1;
+                                bytes_copied += prepped_backup_candidate.file_size;
+                            }
+                            Err(e) => {
+                                errors.lock().unwrap().push(e);
+                            }
                         }
                     } else {
                         // Dry-run mode: just log what would be copied
@@ -80,21 +105,19 @@ pub fn backup_files(
                 {
                     if required {
                         if dry_run_mode.should_copy_files() {
-                            if let Ok(_) = backup_file(
+                            match backup_file(
                                 &prepped_backup_candidate,
                                 backup_path,
                                 config,
                                 dry_run_mode,
                             ) {
-                                files_copied += 1;
-                                bytes_copied += prepped_backup_candidate.file_size;
-                            } else if let Err(e) = backup_file(
-                                &prepped_backup_candidate,
-                                backup_path,
-                                config,
-                                dry_run_mode,
-                            ) {
-                                errors.lock().unwrap().push(e);
+                                Ok(_) => {
+                                    files_copied += 1;
+                                    bytes_copied += prepped_backup_candidate.file_size;
+                                }
+                                Err(e) => {
+                                    errors.lock().unwrap().push(e);
+                                }
                             }
                         } else {
                             // Dry-run mode: just log what would be copied
@@ -113,14 +136,58 @@ pub fn backup_files(
                 pb.inc(files_copied);
                 pb.inc_length(bytes_copied);
             }
+
+            // Update API progress for backup phase
+            if let Some(st) = state {
+                if files_copied > 0 {
+                    let mut file_count = backup_files_processed.lock().unwrap();
+                    *file_count += files_copied;
+                    let current_files = *file_count;
+                    drop(file_count);
+
+                    let mut byte_count = backup_bytes_processed.lock().unwrap();
+                    *byte_count += bytes_copied;
+                    let current_bytes = *byte_count;
+                    drop(byte_count);
+
+                    st.set_progress(Some(crate::models::api::BackupProgress {
+                        phase: 3,
+                        phase_description: "Copying files".to_string(),
+                        files_processed: current_files,
+                        total_files,
+                        bytes_processed: Some(current_bytes),
+                        total_bytes: Some(current_bytes), // Progressive total
+                        percentage: (current_files as f32 / total_files as f32) * 100.0,
+                        current_file: Some(prepped_backup_candidate.file_name.clone()),
+                    }));
+                }
+            }
         });
 
     let errors = errors.into_inner().unwrap();
     if !errors.is_empty() {
-        // Log errors but don't fail the whole operation
-        for err in errors {
+        let error_count = errors.len();
+        // Log all errors
+        for err in &errors {
             error!("Backup error: {}", err);
         }
+
+        // Return warning if some files failed but operation partially succeeded
+        warn!(
+            "Backup completed with {} error(s). Some files may not have been backed up.",
+            error_count
+        );
+
+        // Update API state with error information
+        if let Some(st) = state {
+            st.notify_message(format!(
+                "Backup completed with {} error(s). Check logs for details.",
+                error_count
+            ));
+        }
+
+        // Don't fail completely if we had some successes, but log the issue
+        // In a future enhancement, you could return a custom result type with warnings
     }
     Ok(())
 }
@@ -130,20 +197,65 @@ fn prepare_backup_candidates(
     config: &Config,
     progress: Option<&ProgressBar>,
     dry_run_mode: DryRunMode,
+    state: Option<&crate::api_state::AppState>,
 ) -> Result<Vec<PreppedBackup>> {
+    let total_files: u64 = backup_candidates.values().map(|v| v.len() as u64).sum();
+
+    // Update API state: Starting preparation phase
+    if let Some(st) = state {
+        st.set_progress(Some(crate::models::api::BackupProgress {
+            phase: 2,
+            phase_description: "Preparing backups".to_string(),
+            files_processed: 0,
+            total_files,
+            bytes_processed: None,
+            total_bytes: None,
+            percentage: 0.0,
+            current_file: None,
+        }));
+    }
+
     let prepped_backup_candidates: Mutex<Vec<PreppedBackup>> = Mutex::new(Vec::new());
     let errors: Mutex<Vec<BackupError>> = Mutex::new(Vec::new());
     let progress_arc = progress.map(|pb| Arc::new(pb.clone()));
+    let processed_count = Arc::new(Mutex::new(0u64));
 
     backup_candidates
         .into_par_iter()
         .for_each(|(shared_path, candidates)| {
             for candidate in candidates {
+                // Check stop signal
+                if let Some(st) = state {
+                    if st.is_stop_requested() {
+                        warn!("Backup preparation cancelled by user");
+                        return;
+                    }
+                }
+
                 match prepare_single_candidate(&candidate, &shared_path, config, dry_run_mode) {
                     Ok(prepped) => {
                         prepped_backup_candidates.lock().unwrap().push(prepped);
                         if let Some(pb) = &progress_arc {
                             pb.inc(1);
+                        }
+
+                        // Update API progress
+                        if let Some(st) = state {
+                            let mut count = processed_count.lock().unwrap();
+                            *count += 1;
+                            let current_count = *count;
+                            drop(count);
+
+                            st.set_progress(Some(crate::models::api::BackupProgress {
+                                phase: 2,
+                                phase_description: "Preparing backups".to_string(),
+                                files_processed: current_count,
+                                total_files,
+                                bytes_processed: None,
+                                total_bytes: None,
+                                percentage: (current_count as f32 / total_files as f32) * 100.0,
+                                current_file: Some(candidate.to_string_lossy().to_string()),
+                            }));
                         }
                     }
                     Err(e) => {
@@ -151,20 +263,57 @@ fn prepare_backup_candidates(
                         if let Some(pb) = &progress_arc {
                             pb.inc(1);
                         }
+
+                        // Update API progress even on error
+                        if let Some(st) = state {
+                            let mut count = processed_count.lock().unwrap();
+                            *count += 1;
+                            let current_count = *count;
+                            drop(count);
+
+                            st.set_progress(Some(crate::models::api::BackupProgress {
+                                phase: 2,
+                                phase_description: "Preparing backups".to_string(),
+                                files_processed: current_count,
+                                total_files,
+                                bytes_processed: None,
+                                total_bytes: None,
+                                percentage: (current_count as f32 / total_files as f32) * 100.0,
+                                current_file: None,
+                            }));
+                        }
                     }
                 }
             }
         });
 
     let errors = errors.into_inner().unwrap();
+    let prepped = prepped_backup_candidates.into_inner().unwrap();
+
     if !errors.is_empty() {
-        // Log errors but continue with successful candidates
+        let error_count = errors.len();
+        // Log all errors
         for err in &errors {
             error!("Preparation error: {}", err);
         }
+
+        warn!(
+            "Preparation completed with {} error(s). {} files prepared successfully.",
+            error_count,
+            prepped.len()
+        );
+
+        // Update API state with error information
+        if let Some(st) = state {
+            st.notify_message(format!(
+                "Preparation had {} error(s), but {} files were prepared successfully.",
+                error_count,
+                prepped.len()
+            ));
+        }
     }
 
-    Ok(prepped_backup_candidates.into_inner().unwrap())
+    Ok(prepped)
 }
 
 fn prepare_single_candidate(
@@ -508,10 +657,10 @@ fn get_is_source_file_updated(
 }
 
 fn get_possible_backups(
-    file_name: &String,
-    file_path: &String,
+    file_name: &str,
+    file_path: &str,
     shared_path: &PathBuf,
-    destinations: &Vec<String>,
+    destinations: &[String],
 ) -> Result<Vec<PathBuf>> {
     let relative_path = if let Some(parent) = shared_path.parent() {
         let parent_str = parent.to_str().ok_or_else(|| {
@@ -525,13 +674,50 @@ fn get_possible_backups(
         file_path.trim_start_matches(shared_str)
     };
 
+    // Security: Check for path traversal attempts
+    if relative_path.contains("..") {
+        return Err(BackupError::DirectoryRead(format!(
+            "Path traversal detected in relative path: {}. File path may contain '..' sequences.",
+            relative_path
+        )));
+    }
+
+    // Security: Check file name for path traversal
+    if file_name.contains("..") || file_name.contains(MAIN_SEPARATOR) {
+        return Err(BackupError::DirectoryRead(format!(
+            "Invalid file name detected: {}. File names cannot contain '..' or path separators.",
+            file_name
+        )));
+    }
+
     let mut possible_backup_paths = Vec::new();
     for destination in destinations {
-        possible_backup_paths.push(
-            Path::new(destination)
-                .join(relative_path.trim_start_matches(MAIN_SEPARATOR))
-                .join(file_name),
-        );
+        let dest_path = Path::new(destination);
+        let backup_path = dest_path
+            .join(relative_path.trim_start_matches(MAIN_SEPARATOR))
+            .join(file_name);
+
+        // Security: Verify the constructed path is actually within the destination
+        // Canonicalize both paths to resolve any symbolic links or relative components
+        let canonical_dest = dest_path.canonicalize().unwrap_or_else(|_| dest_path.to_path_buf());
+
+        // For the backup path, we can't canonicalize if it doesn't exist yet,
+        // so we check if its parent (when canonicalized) starts with the destination
+        if let Some(backup_parent) = backup_path.parent() {
+            // If parent exists, canonicalize it; otherwise use as-is
+            let canonical_parent = backup_parent
+                .canonicalize()
+                .unwrap_or_else(|_| backup_parent.to_path_buf());
+
+            if !canonical_parent.starts_with(&canonical_dest) {
+                return Err(BackupError::DirectoryRead(format!(
+                    "Security: Backup path escapes destination directory. Destination: {:?}, Attempted path: {:?}",
+                    destination, backup_path
+                )));
+            }
+        }
+
+        possible_backup_paths.push(backup_path);
     }
     Ok(possible_backup_paths)
 }

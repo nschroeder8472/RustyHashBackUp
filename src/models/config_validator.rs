@@ -58,7 +58,7 @@ fn validate_numeric_values(config: &Config) -> Result<()> {
 }
 
 /// Validate backup source directories
-fn validate_backup_sources(sources: &Vec<BackupSource>) -> Result<()> {
+fn validate_backup_sources(sources: &[BackupSource]) -> Result<()> {
     if sources.is_empty() {
         return Err(BackupError::DirectoryRead(
             "At least one backup source must be configured".to_string(),
@@ -115,7 +115,7 @@ fn validate_backup_sources(sources: &Vec<BackupSource>) -> Result<()> {
 }
 
 /// Validate backup destination directories
-fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
+fn validate_backup_destinations(destinations: &[String]) -> Result<()> {
     if destinations.is_empty() {
         return Err(BackupError::DirectoryRead(
             "At least one backup destination must be configured".to_string(),
@@ -191,7 +191,7 @@ fn validate_backup_destinations(destinations: &Vec<String>) -> Result<()> {
 }
 
 /// Validate database file path
-fn validate_database_path(db_file: &String) -> Result<()> {
+fn validate_database_path(db_file: &str) -> Result<()> {
     if db_file.is_empty() {
         // Empty string means in-memory database, which is valid
         info!("Using in-memory database (no database_file specified)");

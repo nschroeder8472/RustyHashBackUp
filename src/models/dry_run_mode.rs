@@ -25,6 +25,7 @@ impl DryRunMode {
     }
 
     /// Returns true if this is Full mode (do hashing)
+    #[allow(dead_code)]
     pub fn is_full(&self) -> bool {
         matches!(self, DryRunMode::Full)
     }

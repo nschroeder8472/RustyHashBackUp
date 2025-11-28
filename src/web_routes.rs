@@ -11,7 +11,7 @@ pub fn index() -> Redirect {
 
 /// GET /dashboard - Dashboard page
 #[get("/dashboard")]
-pub fn dashboard(state: &State<AppState>) -> Template {
+pub fn dashboard(_state: &State<AppState>) -> Template {
     Template::render("dashboard", context! {
         title: "Dashboard",
         active_tab: "dashboard",
@@ -20,7 +20,7 @@ pub fn dashboard(state: &State<AppState>) -> Template {
 
 /// GET /configuration - Configuration page
 #[get("/configuration")]
-pub fn configuration(state: &State<AppState>) -> Template {
+pub fn configuration(_state: &State<AppState>) -> Template {
     Template::render("configuration", context! {
         title: "Configuration",
         active_tab: "configuration",
@@ -29,7 +29,7 @@ pub fn configuration(state: &State<AppState>) -> Template {
 
 /// GET /logs - Logs page
 #[get("/logs")]
-pub fn logs(state: &State<AppState>) -> Template {
+pub fn logs(_state: &State<AppState>) -> Template {
     Template::render("logs", context! {
         title: "Logs",
         active_tab: "logs",

@@ -14,6 +14,7 @@ pub enum BackupError {
     },
 
     #[error("Failed to open or create database file '{path}': {cause}")]
+    #[allow(dead_code)]
     DatabaseConnection {
         path: String,
         cause: rusqlite::Error,
