@@ -31,6 +31,7 @@ cron = "0.15.0"
 chrono = "0.4"
 ctrlc = "3.4"
 rocket = { version = "0.5.1", features = ["json"] }
+rocket_dyn_templates = { version = "0.2.0", features = ["tera"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 tokio = { version = "1.42", features = ["sync"] }
 

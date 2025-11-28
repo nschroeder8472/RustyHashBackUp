@@ -4,6 +4,7 @@ mod models;
 mod repo;
 mod service;
 mod utils;
+mod web_routes;
 
 use crate::models::config::{setup_config, BackupSource};
 use crate::models::dry_run_mode::DryRunMode;
@@ -23,6 +24,8 @@ use std::path::PathBuf;
 #[macro_use] extern crate rocket;
 
 use api_state::AppState;
+use rocket::fs::{FileServer, relative};
+use rocket_dyn_templates::Template;
 
 #[launch]
 fn rocket() -> _ {
@@ -31,6 +34,15 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(app_state)
+        .attach(Template::fairing())
+        .mount("/static", FileServer::from(relative!("static")))
+        .mount("/", routes![
+            web_routes::index,
+            web_routes::dashboard,
+            web_routes::configuration,
+            web_routes::logs,
+            web_routes::help,
+        ])
         .mount("/api", routes![
             api_routes::get_config,
             api_routes::set_config,

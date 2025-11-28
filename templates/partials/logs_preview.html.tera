@@ -1,0 +1,84 @@
+{# Logs preview component for dashboard #}
+<div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-white">Recent Activity</h2>
+        <a href="/logs" class="text-sm text-purple-400 hover:text-purple-300 transition-colors">
+            View All
+            <svg class="inline w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </a>
+    </div>
+
+    <div class="space-y-3"
+         hx-get="/api/logs/recent"
+         hx-trigger="load, every 10s"
+         hx-swap="innerHTML">
+
+        {# Mock log entries - will be replaced by HTMX API call #}
+        <div class="flex items-start space-x-3 py-2 border-l-2 border-green-500 pl-3">
+            <div class="flex-shrink-0 mt-1">
+                <svg class="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-300">Backup completed successfully</p>
+                <p class="text-xs text-gray-500 mt-1">2,547 files backed up to /backup/dest1</p>
+                <p class="text-xs text-gray-600 mt-1">2 minutes ago</p>
+            </div>
+        </div>
+
+        <div class="flex items-start space-x-3 py-2 border-l-2 border-blue-500 pl-3">
+            <div class="flex-shrink-0 mt-1">
+                <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-300">Started scheduled backup</p>
+                <p class="text-xs text-gray-500 mt-1">Scanning source directories...</p>
+                <p class="text-xs text-gray-600 mt-1">2 hours ago</p>
+            </div>
+        </div>
+
+        <div class="flex items-start space-x-3 py-2 border-l-2 border-yellow-500 pl-3">
+            <div class="flex-shrink-0 mt-1">
+                <svg class="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-300">Skipped 3 files due to size limit</p>
+                <p class="text-xs text-gray-500 mt-1">Files exceed max_mebibytes_for_hash setting</p>
+                <p class="text-xs text-gray-600 mt-1">3 hours ago</p>
+            </div>
+        </div>
+
+        <div class="flex items-start space-x-3 py-2 border-l-2 border-green-500 pl-3">
+            <div class="flex-shrink-0 mt-1">
+                <svg class="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-300">Database optimization completed</p>
+                <p class="text-xs text-gray-500 mt-1">Vacuum operation reduced database size by 15%</p>
+                <p class="text-xs text-gray-600 mt-1">5 hours ago</p>
+            </div>
+        </div>
+
+        <div class="flex items-start space-x-3 py-2 border-l-2 border-blue-500 pl-3">
+            <div class="flex-shrink-0 mt-1">
+                <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-300">Configuration updated</p>
+                <p class="text-xs text-gray-500 mt-1">Changed max_threads from 8 to 16</p>
+                <p class="text-xs text-gray-600 mt-1">1 day ago</p>
+            </div>
+        </div>
+    </div>
+</div>
