@@ -154,3 +154,34 @@ pub struct ProgressEvent {
     pub progress: Option<BackupProgress>,
     pub message: Option<String>,
 }
+
+/// Dashboard metric card
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardMetric {
+    pub title: String,
+    pub value: String,
+    pub subtitle: String,
+    pub icon: String,
+    pub color: String,
+}
+
+/// Dashboard metrics response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardMetrics {
+    pub metrics: Vec<DashboardMetric>,
+}
+
+/// Log entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+/// Logs response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogsResponse {
+    pub logs: Vec<LogEntry>,
+    pub total: usize,
+}

@@ -239,3 +239,182 @@ pub fn validate_config_endpoint(state: &State<AppState>) -> Result<Json<ConfigRe
 pub fn health_check() -> &'static str {
     "OK"
 }
+
+/// Helper function to format timestamp as "X time ago"
+fn format_time_ago(timestamp: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp) {
+        let now = Utc::now();
+        let duration = now.signed_duration_since(dt.with_timezone(&Utc));
+
+        if duration.num_seconds() < 60 {
+            "Just now".to_string()
+        } else if duration.num_minutes() < 60 {
+            format!("{} min ago", duration.num_minutes())
+        } else if duration.num_hours() < 24 {
+            format!("{} hours ago", duration.num_hours())
+        } else {
+            format!("{} days ago", duration.num_days())
+        }
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+/// GET /api/dashboard/metrics - Get dashboard metrics
+#[get("/dashboard/metrics")]
+pub fn get_dashboard_metrics(state: &State<AppState>) -> Json<DashboardMetrics> {
+    let status = state.get_status();
+    let history = state.get_history();
+
+    // Get the most recent backup from history
+    let last_backup = history.first().map(|entry| DashboardMetric {
+        title: "Last Backup".to_string(),
+        value: format_time_ago(&entry.started_at),
+        subtitle: format!("{:?}", entry.status),
+        icon: "clock".to_string(),
+        color: match entry.status {
+            BackupStatus::Completed => "green",
+            BackupStatus::Failed => "red",
+            BackupStatus::Running => "blue",
+            _ => "gray",
+        }.to_string(),
+    });
+
+    // Current backup status
+    let current_status = DashboardMetric {
+        title: "Current Status".to_string(),
+        value: format!("{:?}", status),
+        subtitle: if status == BackupStatus::Running { "In progress" } else { "Idle" }.to_string(),
+        icon: "activity".to_string(),
+        color: match status {
+            BackupStatus::Running => "blue",
+            BackupStatus::Failed => "red",
+            BackupStatus::Completed => "green",
+            _ => "gray",
+        }.to_string(),
+    };
+
+    // Total backups count
+    let total_backups = DashboardMetric {
+        title: "Total Backups".to_string(),
+        value: history.len().to_string(),
+        subtitle: "All time".to_string(),
+        icon: "database".to_string(),
+        color: "purple".to_string(),
+    };
+
+    let mut metrics = vec![current_status, total_backups];
+    if let Some(last) = last_backup {
+        metrics.insert(0, last);
+    }
+
+    Json(DashboardMetrics { metrics })
+}
+
+/// GET /api/progress - Get current backup progress
+#[get("/progress")]
+pub fn get_progress(state: &State<AppState>) -> Json<Option<BackupProgress>> {
+    Json(state.get_progress())
+}
+
+/// GET /api/logs - Get all logs
+#[get("/logs")]
+pub fn get_logs(state: &State<AppState>) -> Json<LogsResponse> {
+    let history = state.get_history();
+
+    // Convert history entries to log format
+    let logs: Vec<LogEntry> = history
+        .iter()
+        .flat_map(|entry| {
+            let mut entries = vec![LogEntry {
+                timestamp: entry.started_at.clone(),
+                level: "INFO".to_string(),
+                message: format!("Backup started (ID: {})", entry.id),
+            }];
+
+            if let Some(completed) = &entry.completed_at {
+                entries.push(LogEntry {
+                    timestamp: completed.clone(),
+                    level: match entry.status {
+                        BackupStatus::Completed => "INFO",
+                        BackupStatus::Failed => "ERROR",
+                        _ => "WARN",
+                    }
+                    .to_string(),
+                    message: format!(
+                        "Backup {} - {} files processed",
+                        match entry.status {
+                            BackupStatus::Completed => "completed",
+                            BackupStatus::Failed => "failed",
+                            _ => "stopped",
+                        },
+                        entry.files_processed
+                    ),
+                });
+            }
+
+            if let Some(error) = &entry.error {
+                entries.push(LogEntry {
+                    timestamp: entry.completed_at.clone().unwrap_or_else(|| entry.started_at.clone()),
+                    level: "ERROR".to_string(),
+                    message: error.clone(),
+                });
+            }
+
+            entries
+        })
+        .collect();
+
+    let total = logs.len();
+    Json(LogsResponse { logs, total })
+}
+
+/// GET /api/logs/recent - Get recent logs (last 50)
+#[get("/logs/recent")]
+pub fn get_recent_logs(state: &State<AppState>) -> Json<LogsResponse> {
+    let all_logs = get_logs(state).into_inner();
+    let recent_logs: Vec<LogEntry> = all_logs.logs.into_iter().take(50).collect();
+    let total = recent_logs.len();
+
+    Json(LogsResponse {
+        logs: recent_logs,
+        total,
+    })
+}
+
+/// POST /api/logs/clear - Clear log history
+#[post("/logs/clear")]
+pub fn clear_logs(state: &State<AppState>) -> Json<serde_json::Value> {
+    state.clear_history();
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Logs cleared successfully"
+    }))
+}
+
+// ============================================================================
+// Path Aliases for RESTful naming (matching UI documentation)
+// ============================================================================
+
+/// POST /api/backup/start - Alias for /api/start
+#[post("/backup/start", format = "json", data = "<request>")]
+pub fn start_backup_alias(
+    request: Json<StartBackupRequest>,
+    state: &State<AppState>,
+) -> Result<Json<StartBackupResponse>, Status> {
+    start_backup(request, state)
+}
+
+/// POST /api/backup/stop - Alias for /api/stop
+#[post("/backup/stop")]
+pub fn stop_backup_alias(state: &State<AppState>) -> Json<StopBackupResponse> {
+    stop_backup(state)
+}
+
+/// GET /api/progress/events - Alias for /api/events
+#[get("/progress/events")]
+pub async fn progress_events_alias(state: &State<AppState>) -> EventStream![] {
+    progress_events(state)
+}

@@ -1,11 +1,11 @@
 use crate::models::error::{BackupError, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 pub fn get_files_in_path(
-    dir: &String,
-    skip_dirs: &Vec<String>,
+    dir: &str,
+    skip_dirs: &[String],
     max_depth: &usize,
 ) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
@@ -32,35 +32,35 @@ pub fn get_files_in_path(
     Ok(files)
 }
 
-pub fn get_file_size(file: &PathBuf) -> Result<u64> {
+pub fn get_file_size(file: &Path) -> Result<u64> {
     let metadata = file
         .metadata()
         .map_err(|cause| BackupError::MetadataError {
-            path: file.clone(),
+            path: file.to_path_buf(),
             cause,
         })?;
     Ok(metadata.len())
 }
 
-pub fn get_file_last_modified(file: &PathBuf) -> Result<Duration> {
+pub fn get_file_last_modified(file: &Path) -> Result<Duration> {
     let metadata = file
         .metadata()
         .map_err(|cause| BackupError::MetadataError {
-            path: file.clone(),
+            path: file.to_path_buf(),
             cause,
         })?;
 
     let modified = metadata
         .modified()
         .map_err(|cause| BackupError::MetadataError {
-            path: file.clone(),
+            path: file.to_path_buf(),
             cause,
         })?;
 
     modified
         .duration_since(UNIX_EPOCH)
         .map_err(|cause| BackupError::ModificationTimeError {
-            path: file.clone(),
+            path: file.to_path_buf(),
             cause,
         })
 }

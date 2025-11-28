@@ -9,6 +9,8 @@ pub struct PreppedBackup {
     pub backup_paths: Vec<PathBuf>,
     pub hash: String,
     pub file_size: u64,
+    #[allow(dead_code)]
     pub source_last_modified_date: Duration,
+    #[allow(dead_code)]
     pub updated: bool,
 }

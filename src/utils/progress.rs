@@ -41,6 +41,7 @@ pub fn create_progress_bar_with_bytes(total_files: u64, prefix: &str) -> Progres
 }
 
 /// Format bytes into human-readable format
+#[allow(dead_code)]
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = bytes as f64;

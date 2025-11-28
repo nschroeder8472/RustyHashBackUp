@@ -92,6 +92,7 @@ impl AppState {
     }
 
     /// Update progress incrementally
+    #[allow(dead_code)]
     pub fn update_progress<F>(&self, updater: F)
     where
         F: FnOnce(&mut BackupProgress),
@@ -109,6 +110,7 @@ impl AppState {
     }
 
     /// Get the stop signal flag
+    #[allow(dead_code)]
     pub fn get_stop_signal(&self) -> Arc<AtomicBool> {
         self.stop_signal.clone()
     }
@@ -191,6 +193,11 @@ impl AppState {
     /// Get backup history
     pub fn get_history(&self) -> Vec<BackupHistoryEntry> {
         self.history.lock().unwrap().iter().cloned().collect()
+    }
+
+    /// Clear backup history
+    pub fn clear_history(&self) {
+        self.history.lock().unwrap().clear();
     }
 
     /// Subscribe to progress events

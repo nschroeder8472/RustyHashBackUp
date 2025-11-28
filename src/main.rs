@@ -4,6 +4,7 @@ mod models;
 mod repo;
 mod service;
 mod utils;
+mod web_routes;
 
 use crate::models::config::{setup_config, BackupSource};
 use crate::models::dry_run_mode::DryRunMode;
@@ -23,14 +24,24 @@ use std::path::PathBuf;
 #[macro_use] extern crate rocket;
 
 use api_state::AppState;
+use rocket::fs::{FileServer, relative};
+use rocket_dyn_templates::Template;
 
-#[launch]
-fn rocket() -> _ {
+fn build_rocket() -> rocket::Rocket<rocket::Build> {
     // Initialize application state
     let app_state = AppState::new();
 
     rocket::build()
         .manage(app_state)
+        .attach(Template::fairing())
+        .mount("/static", FileServer::from(relative!("static")))
+        .mount("/", routes![
+            web_routes::index,
+            web_routes::dashboard,
+            web_routes::configuration,
+            web_routes::logs,
+            web_routes::help,
+        ])
         .mount("/api", routes![
             api_routes::get_config,
             api_routes::set_config,
@@ -41,10 +52,30 @@ fn rocket() -> _ {
             api_routes::progress_events,
             api_routes::validate_config_endpoint,
             api_routes::health_check,
+            api_routes::get_dashboard_metrics,
+            api_routes::get_progress,
+            api_routes::get_logs,
+            api_routes::get_recent_logs,
+            api_routes::clear_logs,
+            // Path aliases for RESTful naming
+            api_routes::start_backup_alias,
+            api_routes::stop_backup_alias,
+            api_routes::progress_events_alias,
         ])
 }
 
-// CLI functionality for backwards compatibility
+#[rocket::main]
+async fn main() -> Result<()> {
+    let args = Cli::parse();
+
+    if args.api_mode {
+        build_rocket().launch().await?;
+        Ok(())
+    } else {
+        cli_main(args)
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "RustyHashBackup")]
 #[command(about = "Hash-based file backup utility", long_about = None)]
@@ -80,13 +111,11 @@ struct Cli {
     #[arg(short = 'o', long = "once")]
     once: bool,
 
-    /// Run in API mode instead of CLI mode
     #[arg(long = "api")]
     api_mode: bool,
 }
 
-fn cli_main() -> Result<()> {
-    let args = Cli::parse();
+fn cli_main(args: Cli) -> Result<()> {
 
     let log_level = match args.log_level.to_lowercase().as_str() {
         "trace" => log::LevelFilter::Trace,
@@ -130,14 +159,11 @@ fn cli_main() -> Result<()> {
 
     setup_database().context("Failed to set up database schema")?;
 
-    // Determine if we should run scheduled or one-time
     let run_once = args.once || config.schedule.is_none();
 
     if run_once {
-        // One-time execution
         run_backup(&config, dry_run_mode, args.quiet, None)?;
     } else {
-        // Scheduled execution
         run_scheduled(&config, dry_run_mode, args.quiet)?;
     }
 
@@ -151,7 +177,6 @@ fn run_backup(config: &Config, dry_run_mode: DryRunMode, quiet: bool, state: Opt
         None
     };
 
-    // Update API state if provided
     if let Some(st) = state {
         st.set_progress(Some(models::api::BackupProgress {
             phase: 1,
@@ -213,10 +238,11 @@ fn run_backup(config: &Config, dry_run_mode: DryRunMode, quiet: bool, state: Opt
 
     backup_files(
         backup_candidates,
-        &config,
+        config,
         prep_progress.as_ref(),
         backup_progress.as_ref(),
         dry_run_mode,
+        state,
     )
     .context("Backup operation failed")?;
 
@@ -244,7 +270,6 @@ fn run_backup(config: &Config, dry_run_mode: DryRunMode, quiet: bool, state: Opt
     Ok(())
 }
 
-/// Runs scheduled backups based on cron expression
 fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Result<()> {
     use chrono::Utc;
     use cron::Schedule;
@@ -285,7 +310,6 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
                   next.format("%Y-%m-%d %H:%M:%S %Z"),
                   duration_until_next.as_secs());
 
-            // Sleep until next scheduled time or until interrupted
             let sleep_duration = std::cmp::min(
                 duration_until_next,
                 std::time::Duration::from_secs(1)  // Check shutdown signal every second
@@ -293,7 +317,6 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
 
             std::thread::sleep(sleep_duration);
 
-            // Check if we've reached the scheduled time
             if Utc::now() >= next && running.load(Ordering::SeqCst) {
                 info!("Running scheduled backup...");
                 if let Err(e) = run_backup(config, dry_run_mode, quiet, None) {

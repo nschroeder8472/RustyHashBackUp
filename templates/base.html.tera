@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default(value="RustyHashBackup") }} - RustyHashBackup</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX Core -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- HTMX SSE Extension -->
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/custom.css">
+
+    <!-- Tailwind Config for Dark Theme -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'dark-bg': '#1e1e1e',
+                        'dark-surface': '#2d2d2d',
+                        'dark-border': '#3d3d3d',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark-bg text-gray-100 min-h-screen overflow-hidden">
+    <div class="grid grid-cols-[auto_1fr_auto] min-h-screen max-h-screen">
+        <!-- Left Sidebar -->
+        {% include "partials/sidebar" %}
+
+        <!-- Main Content Area -->
+        <div class="flex flex-col min-h-screen max-h-screen overflow-hidden">
+            <!-- Top Header -->
+            {% include "partials/header" %}
+
+            <!-- Main Content -->
+            <main class="flex-1 p-6 overflow-y-auto">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+
+        <!-- Right Sidebar (Quick Actions) -->
+        {% include "partials/quick_actions" %}
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
