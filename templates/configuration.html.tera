@@ -4,20 +4,37 @@
 <div class="space-y-6">
     <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">Configuration</h1>
-        <div class="flex space-x-3">
-            <button class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-                    onclick="loadConfig()">
+    </div>
+
+    <!-- Config File Management -->
+    <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+        <h2 class="text-lg font-semibold text-white mb-4 flex items-center">
+            <svg class="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Configuration File
+        </h2>
+        <p class="text-sm text-gray-400 mb-4">Specify configuration path.</p>
+
+        <div class="flex items-end space-x-3">
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                    Configuration File Path
+                </label>
+                <input type="text"
+                       id="config-file-path"
+                       class="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                       placeholder="config.json"
+                       value="config.json">
+                <p class="mt-1 text-xs text-gray-500">Path where configuration will be saved (e.g., config.json or /path/to/config.json)</p>
+            </div>
+            <button type="button"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors whitespace-nowrap"
+                    onclick="loadConfigFromFile()">
                 <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
-                Reload
-            </button>
-            <button class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-                    onclick="saveConfig()">
-                <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                Save Configuration
+                Load from File
             </button>
         </div>
     </div>
@@ -270,8 +287,15 @@
         </div>
     </form>
 
-    <!-- Form Response Container -->
-    <div id="config-response"></div>
+    <div class="flex justify-end">
+        <button class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                onclick="saveConfig()">
+            <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            Save Configuration
+        </button>
+    </div>
 
     <!-- Validation Status -->
     <div class="bg-dark-surface border border-dark-border rounded-lg p-6 hidden" id="validation-status">
@@ -285,6 +309,7 @@
             </div>
         </div>
     </div>
+
 </div>
 
 <script>
@@ -389,6 +414,15 @@
     }
 
     function saveConfig() {
+        // Get config file path and convert backslashes to forward slashes
+        const filePath = document.getElementById('config-file-path').value.trim().replace(/\\/g, '/');
+
+        // Validate file path is not empty
+        if (!filePath) {
+            showToast('Please specify a config file path', 'error');
+            return;
+        }
+
         // Collect form data and build config JSON
         const form = document.getElementById('config-form');
         const formData = new FormData(form);
@@ -424,8 +458,7 @@
 
         // Validate: At least one source is required
         if (sources.length === 0) {
-            document.getElementById('config-response').innerHTML =
-                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4"><p class="text-red-400">At least one backup source must be configured</p></div>';
+            showToast('At least one backup source must be configured', 'error');
             return;
         }
 
@@ -442,8 +475,7 @@
 
         // Validate: At least one destination is required
         if (destinations.length === 0) {
-            document.getElementById('config-response').innerHTML =
-                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4"><p class="text-red-400">At least one backup destination must be configured</p></div>';
+            showToast('At least one backup destination must be configured', 'error');
             return;
         }
 
@@ -456,26 +488,32 @@
             force_overwrite_backup: formData.get('force_overwrite_backup') === 'on',
             overwrite_backup_if_existing_is_newer: formData.get('overwrite_backup_if_existing_is_newer') === 'on',
             schedule: formData.get('schedule') || null,
-            backup_sources: sources.length > 0 ? sources : [],
+            backup_sources: sources,
             backup_destinations: destinations
         };
 
-        // Send as JSON directly to the API
-        fetch('/api/config/form', {
+        // Show saving message
+        showToast('Saving configuration...', 'info', 0);
+
+        // Save to file (which also sets in AppState)
+        fetch('/api/config/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(config)
+            body: JSON.stringify({ file_path: filePath, config: config })
         })
-        .then(response => response.text())
-        .then(html => {
-            document.getElementById('config-response').innerHTML = html;
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+            } else {
+                showToast(data.message, 'error');
+            }
         })
         .catch(error => {
             console.error('Error saving config:', error);
-            document.getElementById('config-response').innerHTML =
-                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4 text-red-400">Error saving configuration</div>';
+            showToast('Failed to save configuration', 'error');
         });
     }
 
@@ -541,6 +579,49 @@
 
     function removeDestination(button) {
         button.closest('.destination-entry').remove();
+    }
+
+    // Load configuration from file
+    function loadConfigFromFile() {
+        // Get config file path and convert backslashes to forward slashes
+        const filePath = document.getElementById('config-file-path').value.trim().replace(/\\/g, '/');
+
+        console.log('Loading config from:', filePath);
+
+        if (!filePath) {
+            showToast('Please specify a config file path', 'error');
+            return;
+        }
+
+        showToast('Loading configuration...', 'info', 0);
+
+        fetch('/api/config/load', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ file_path: filePath })
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Response data:', data);
+            if (data.success) {
+                showToast(data.message, 'success');
+                // Populate form with loaded config
+                if (data.config) {
+                    populateForm(data.config);
+                }
+            } else {
+                showToast(data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Load error:', error);
+            showToast('Failed to load config: ' + error.message, 'error');
+        });
     }
 </script>
 {% endblock %}

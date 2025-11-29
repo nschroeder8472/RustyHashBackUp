@@ -16,6 +16,9 @@ pub struct AppState {
     /// Current configuration (None if not set)
     config: Arc<Mutex<Option<Config>>>,
 
+    /// Config file path for persistence
+    config_file_path: Arc<Mutex<Option<String>>>,
+
     /// Current backup status
     status: Arc<Mutex<BackupStatus>>,
 
@@ -50,6 +53,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             config: Arc::new(Mutex::new(None)),
+            config_file_path: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new(BackupStatus::Idle)),
             progress: Arc::new(Mutex::new(None)),
             stop_signal: Arc::new(AtomicBool::new(false)),
@@ -67,6 +71,71 @@ impl AppState {
     /// Set the configuration
     pub fn set_config(&self, config: Config) {
         *self.config.lock().unwrap() = Some(config);
+    }
+
+    /// Get the config file path
+    pub fn get_config_file_path(&self) -> Option<String> {
+        self.config_file_path.lock().unwrap().clone()
+    }
+
+    /// Set the config file path
+    pub fn set_config_file_path(&self, path: String) {
+        *self.config_file_path.lock().unwrap() = Some(path);
+    }
+
+    /// Save current configuration to file
+    pub fn save_config_to_file(&self) -> Result<(), String> {
+        use std::fs;
+        use std::path::Path;
+
+        let config = self.get_config()
+            .ok_or_else(|| "No configuration to save".to_string())?;
+
+        let file_path = self.get_config_file_path()
+            .ok_or_else(|| "No config file path set".to_string())?;
+
+        // Ensure parent directory exists
+        if let Some(parent) = Path::new(&file_path).parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            }
+        }
+
+        // Serialize config to JSON
+        let config_json = serde_json::to_string_pretty(&config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+        // Write to file
+        fs::write(&file_path, config_json)
+            .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+        log::info!("Configuration saved to {}", file_path);
+        Ok(())
+    }
+
+    /// Load configuration from file
+    pub fn load_config_from_file(&self, file_path: String) -> Result<(), String> {
+        use std::fs;
+
+        // Read file
+        let config_str = fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+        // Parse JSON
+        let config: Config = serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config file: {}", e))?;
+
+        // Validate
+        crate::models::config_validator::validate_config(&config)
+            .map_err(|e| format!("Config validation failed: {}", e))?;
+
+        // Store config and file path
+        self.set_config(config);
+        self.set_config_file_path(file_path.clone());
+
+        log::info!("Configuration loaded from {}", file_path);
+        Ok(())
     }
 
     /// Get the current status

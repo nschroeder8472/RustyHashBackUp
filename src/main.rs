@@ -59,6 +59,8 @@ fn build_rocket() -> rocket::Rocket<rocket::Build> {
             api_routes::get_config_form,
             api_routes::set_config,
             api_routes::set_config_form,
+            api_routes::save_config_to_file,
+            api_routes::load_config_from_file,
             api_routes::get_status,
             api_routes::start_backup,
             api_routes::stop_backup,
@@ -73,10 +75,6 @@ fn build_rocket() -> rocket::Rocket<rocket::Build> {
             api_routes::get_log_stats,
             api_routes::clear_logs,
             api_routes::get_storage_overview,
-            // Path aliases for RESTful naming
-            api_routes::start_backup_alias,
-            api_routes::stop_backup_alias,
-            api_routes::progress_events_alias,
         ])
 }
 

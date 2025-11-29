@@ -105,6 +105,161 @@ pub fn set_config_form(
     })
 }
 
+/// POST /api/config/save - Save configuration to file
+#[post("/config/save", format = "json", data = "<request>")]
+pub fn save_config_to_file(
+    request: Json<serde_json::Value>,
+    state: &State<AppState>,
+) -> Result<Json<serde_json::Value>, Status> {
+    use std::fs;
+    use std::path::Path;
+
+    // Get config file path from request
+    let file_path = request.get("file_path")
+        .and_then(|v| v.as_str())
+        .ok_or(Status::BadRequest)?
+        .to_string();
+
+    // Validate path is not empty
+    if file_path.trim().is_empty() {
+        return Ok(Json(json!({
+            "success": false,
+            "message": "Config file path cannot be empty"
+        })));
+    }
+
+    // Get config from request
+    let config: Config = match request.get("config") {
+        Some(config_value) => {
+            match serde_json::from_value(config_value.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    return Ok(Json(json!({
+                        "success": false,
+                        "message": format!("Invalid config format: {}", e)
+                    })));
+                }
+            }
+        }
+        None => {
+            return Ok(Json(json!({
+                "success": false,
+                "message": "No config data provided"
+            })));
+        }
+    };
+
+    // Validate configuration
+    if let Err(e) = crate::models::config_validator::validate_config(&config) {
+        return Ok(Json(json!({
+            "success": false,
+            "message": format!("Config validation failed: {}", e)
+        })));
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(&file_path).parent() {
+        if !parent.exists() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                return Ok(Json(json!({
+                    "success": false,
+                    "message": format!("Failed to create config directory: {}", e)
+                })));
+            }
+        }
+    }
+
+    // Serialize config to JSON
+    let config_json = match serde_json::to_string_pretty(&config) {
+        Ok(json) => json,
+        Err(e) => {
+            return Ok(Json(json!({
+                "success": false,
+                "message": format!("Failed to serialize config: {}", e)
+            })));
+        }
+    };
+
+    // Write to file
+    if let Err(e) = fs::write(&file_path, config_json) {
+        return Ok(Json(json!({
+            "success": false,
+            "message": format!("Failed to write config file: {}", e)
+        })));
+    }
+
+    // Set config file path in state
+    state.set_config_file_path(file_path.clone());
+
+    // Set config in state
+    state.set_config(config);
+
+    // Reinitialize database with new config
+    if let Some(config) = state.get_config() {
+        reinitialize_database(&config.database_file);
+    }
+
+    // Log the save
+    let _ = sqlite::insert_log_entry(
+        "INFO",
+        &format!("Configuration saved to file: {}", file_path),
+        Some("api_routes::save_config_to_file")
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "message": format!("Configuration saved to {}", file_path)
+    })))
+}
+
+/// POST /api/config/load - Load configuration from file
+#[post("/config/load", format = "json", data = "<request>")]
+pub fn load_config_from_file(
+    request: Json<serde_json::Value>,
+    state: &State<AppState>,
+) -> Result<Json<serde_json::Value>, Status> {
+    // Get config file path from request
+    let file_path = request.get("file_path")
+        .and_then(|v| v.as_str())
+        .ok_or(Status::BadRequest)?
+        .to_string();
+
+    // Validate path is not empty
+    if file_path.trim().is_empty() {
+        return Ok(Json(json!({
+            "success": false,
+            "message": "Config file path cannot be empty"
+        })));
+    }
+
+    // Load config from file
+    match state.load_config_from_file(file_path.clone()) {
+        Ok(()) => {
+            // Reinitialize database with new config
+            if let Some(config) = state.get_config() {
+                reinitialize_database(&config.database_file);
+            }
+
+            // Log the load
+            let _ = sqlite::insert_log_entry(
+                "INFO",
+                &format!("Configuration loaded from file: {}", file_path),
+                Some("api_routes::load_config_from_file")
+            );
+
+            Ok(Json(json!({
+                "success": true,
+                "message": format!("Configuration loaded from {}", file_path),
+                "config": state.get_config()
+            })))
+        }
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "message": e
+        })))
+    }
+}
+
 /// Helper function to reinitialize database when config changes
 fn reinitialize_database(db_path: &str) {
     use std::path::Path;
@@ -617,29 +772,4 @@ pub fn get_storage_overview(state: &State<AppState>) -> Template {
     Template::render("partials/storage_overview", context! {
         destinations: formatted_destinations,
     })
-}
-
-// ============================================================================
-// Path Aliases for RESTful naming (matching UI documentation)
-// ============================================================================
-
-/// POST /api/backup/start - Alias for /api/start
-#[post("/backup/start", format = "json", data = "<request>")]
-pub fn start_backup_alias(
-    request: Json<StartBackupRequest>,
-    state: &State<AppState>,
-) -> Result<Json<StartBackupResponse>, Status> {
-    start_backup(request, state)
-}
-
-/// POST /api/backup/stop - Alias for /api/stop
-#[post("/backup/stop")]
-pub fn stop_backup_alias(state: &State<AppState>) -> Json<StopBackupResponse> {
-    stop_backup(state)
-}
-
-/// GET /api/progress/events - Alias for /api/events
-#[get("/progress/events")]
-pub async fn progress_events_alias(state: &State<AppState>) -> EventStream![] {
-    progress_events(state)
 }

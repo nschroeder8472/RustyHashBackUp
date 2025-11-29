@@ -15,7 +15,7 @@ These endpoints already exist and are functional:
 - `GET /api/status` - Get backup status
 - `POST /api/backup/start` - Start a backup operation
 - `POST /api/backup/stop` - Stop current backup
-- `GET /api/progress/events` - SSE stream for backup progress
+- `GET /api/events` - SSE stream for backup progress
 - `GET /api/history` - Get backup history
 - `POST /api/validate-config` - Validate configuration
 - `GET /api/health` - Health check endpoint
@@ -308,7 +308,7 @@ The UI uses HTMX for dynamic updates. Key attributes used:
 - `sse-connect` - SSE endpoint URL
 - `sse-swap` - SSE event to listen for
 
-The existing `/api/progress/events` SSE endpoint is already being used correctly.
+The existing `/api/events` SSE endpoint is already being used correctly.
 
 ---
 
