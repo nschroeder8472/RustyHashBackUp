@@ -63,66 +63,34 @@
     </div>
 
     <!-- Log Statistics -->
-    <div class="grid grid-cols-5 gap-4">
-        <div class="bg-dark-surface border border-l-4 border-l-red-500 border-dark-border rounded-lg p-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">Errors</p>
-                    <p class="text-2xl font-semibold text-red-400">3</p>
-                </div>
-                <svg class="w-8 h-8 text-red-500 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                </svg>
-            </div>
-        </div>
-
-        <div class="bg-dark-surface border border-l-4 border-l-yellow-500 border-dark-border rounded-lg p-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">Warnings</p>
-                    <p class="text-2xl font-semibold text-yellow-400">12</p>
-                </div>
-                <svg class="w-8 h-8 text-yellow-500 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                </svg>
-            </div>
-        </div>
-
-        <div class="bg-dark-surface border border-l-4 border-l-blue-500 border-dark-border rounded-lg p-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">Info</p>
-                    <p class="text-2xl font-semibold text-blue-400">847</p>
-                </div>
-                <svg class="w-8 h-8 text-blue-500 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                </svg>
-            </div>
-        </div>
-
+    <div class="grid grid-cols-5 gap-4"
+         hx-get="/api/logs/stats"
+         hx-trigger="load, every 30s"
+         hx-swap="innerHTML">
+        <!-- Loading placeholders -->
         <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">Debug</p>
-                    <p class="text-2xl font-semibold text-gray-400">1,523</p>
-                </div>
-                <svg class="w-8 h-8 text-gray-500 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                    <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-                </svg>
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
             </div>
         </div>
-
-        <div class="bg-dark-surface border border-l-4 border-l-purple-500 border-dark-border rounded-lg p-4">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">Total</p>
-                    <p class="text-2xl font-semibold text-white">2,385</p>
-                </div>
-                <svg class="w-8 h-8 text-purple-500 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                    <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd" />
-                </svg>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
             </div>
         </div>
     </div>
@@ -276,26 +244,51 @@
     }
 
     function filterLogs() {
-        // Client-side filtering (will be replaced with API call)
+        // Build API URL with query parameters
         const level = document.getElementById('log-level-filter').value;
-        const search = document.getElementById('log-search').value.toLowerCase();
-        const entries = document.querySelectorAll('.log-entry');
+        const timeRange = document.getElementById('time-range-filter').value;
+        const search = document.getElementById('log-search').value;
 
-        entries.forEach(entry => {
-            const entryLevel = entry.dataset.level;
-            const entryText = entry.textContent.toLowerCase();
+        // Calculate 'since' timestamp based on time range
+        let since = null;
+        const now = Math.floor(Date.now() / 1000); // Current Unix timestamp in seconds
 
-            let showEntry = true;
+        switch(timeRange) {
+            case '1h':
+                since = now - (60 * 60);
+                break;
+            case '6h':
+                since = now - (6 * 60 * 60);
+                break;
+            case '24h':
+                since = now - (24 * 60 * 60);
+                break;
+            case '7d':
+                since = now - (7 * 24 * 60 * 60);
+                break;
+            case 'all':
+            default:
+                since = null;
+                break;
+        }
 
-            if (level !== 'all' && entryLevel !== level) {
-                showEntry = false;
-            }
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (level !== 'all') {
+            params.append('level', level.toUpperCase());
+        }
+        if (since !== null) {
+            params.append('since', since);
+        }
+        if (search) {
+            params.append('search', search);
+        }
 
-            if (search && !entryText.includes(search)) {
-                showEntry = false;
-            }
-
-            entry.style.display = showEntry ? '' : 'none';
+        // Make HTMX request to the API
+        const url = '/api/logs?' + params.toString();
+        htmx.ajax('GET', url, {
+            target: '#log-entries',
+            swap: 'innerHTML'
         });
     }
 </script>

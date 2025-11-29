@@ -1,7 +1,9 @@
 use crate::models::backed_up_file::BackedUpFile;
 use crate::models::backup_row::BackupRow;
 use crate::models::error::{BackupError, Result};
+use crate::models::log_row::LogRow;
 use crate::models::source_row::SourceRow;
+use crate::models::storage::{DestinationStorageStats, StorageStats};
 use log::{debug, info};
 use once_cell::sync::Lazy;
 use r2d2::Pool;
@@ -113,6 +115,27 @@ pub fn setup_database() -> Result<()> {
 
     CREATE INDEX IF NOT EXISTS Backup_Files_Source_ID_index
             on Backup_Files (Source_ID);
+
+    CREATE TABLE IF NOT EXISTS Logs(
+        ID            integer not null
+            constraint Logs_ID_pk
+                primary key autoincrement,
+        Timestamp     integer not null,
+        Level         TEXT    not null,
+        Message       TEXT    not null,
+        Context       TEXT,
+        Source        TEXT,
+        constraint Logs_Level_Check
+            check (Level IN ('ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE')));
+
+    CREATE INDEX IF NOT EXISTS Logs_Timestamp_index
+            on Logs (Timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS Logs_Level_index
+            on Logs (Level);
+
+    CREATE INDEX IF NOT EXISTS Logs_Timestamp_Level_index
+            on Logs (Timestamp DESC, Level);
 
     COMMIT;";
 
@@ -261,6 +284,214 @@ pub fn insert_backup_row(backup_row: BackupRow) -> Result<()> {
     })?;
     debug!("Inserted backup record: {}", backup_row.file_name);
     Ok(())
+}
+
+// ============================================================================
+// Logs Table Functions
+// ============================================================================
+
+/// Insert a log entry into the Logs table
+pub fn insert_log_entry(level: &str, message: &str, source: Option<&str>) -> Result<()> {
+    let conn = get_connection()?;
+    let timestamp = chrono::Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO Logs (Timestamp, Level, Message, Source) VALUES (?1, ?2, ?3, ?4)",
+        (timestamp, level, message, source),
+    )
+    .map_err(|cause| BackupError::DatabaseInsert {
+        table: "Logs".to_string(),
+        file: message.to_string(),
+        cause,
+    })?;
+
+    Ok(())
+}
+
+/// Query logs with optional filtering
+pub fn query_logs(
+    level: Option<&str>,
+    since: Option<i64>,
+    search: Option<&str>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<LogRow>> {
+    let conn = get_connection()?;
+
+    // Build dynamic SQL query
+    let mut query = String::from("SELECT ID, Timestamp, Level, Message, Context, Source FROM Logs WHERE 1=1");
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(lvl) = level {
+        if lvl != "all" {
+            query.push_str(" AND Level = ?");
+            params.push(Box::new(lvl.to_string()));
+        }
+    }
+
+    if let Some(ts) = since {
+        query.push_str(" AND Timestamp >= ?");
+        params.push(Box::new(ts));
+    }
+
+    if let Some(search_term) = search {
+        query.push_str(" AND Message LIKE ?");
+        params.push(Box::new(format!("%{}%", search_term)));
+    }
+
+    query.push_str(" ORDER BY Timestamp DESC");
+
+    if let Some(lim) = limit {
+        query.push_str(" LIMIT ?");
+        params.push(Box::new(lim as i64));
+    }
+
+    if let Some(off) = offset {
+        query.push_str(" OFFSET ?");
+        params.push(Box::new(off as i64));
+    }
+
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let mut stmt = conn.prepare(&query)
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "query logs".to_string(),
+            cause,
+        })?;
+
+    let rows = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok(LogRow {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                level: row.get(2)?,
+                message: row.get(3)?,
+                context: row.get(4)?,
+                source: row.get(5)?,
+            })
+        })
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "query logs".to_string(),
+            cause,
+        })?;
+
+    rows.collect::<rusqlite::Result<Vec<LogRow>>>()
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "collect log rows".to_string(),
+            cause,
+        })
+}
+
+/// Delete all log entries
+pub fn delete_all_logs() -> Result<usize> {
+    let conn = get_connection()?;
+
+    let deleted = conn.execute("DELETE FROM Logs", [])
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "delete logs".to_string(),
+            cause,
+        })?;
+
+    debug!("Deleted {} log entries", deleted);
+    Ok(deleted)
+}
+
+// ============================================================================
+// Storage Overview Functions
+// ============================================================================
+
+/// Get storage overview statistics from database
+pub fn get_storage_overview(destinations: &[String]) -> Result<StorageStats> {
+    let conn = get_connection()?;
+
+    // Get total source files and size
+    let (total_files, total_size): (u64, u64) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(File_Size), 0) FROM Source_Files",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "get total source stats".to_string(),
+            cause,
+        })?;
+
+    // Get per-destination stats
+    let mut dest_stats = Vec::new();
+
+    for dest in destinations {
+        let (count, size): (u64, u64) = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT bf.Source_ID), COALESCE(SUM(sf.File_Size), 0)
+                 FROM Backup_Files bf
+                 INNER JOIN Source_Files sf ON bf.Source_ID = sf.ID
+                 WHERE bf.File_Path LIKE ?1 || '%'",
+                [dest],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|cause| BackupError::DatabaseQuery {
+                operation: format!("get storage stats for {}", dest),
+                cause,
+            })?;
+
+        dest_stats.push(DestinationStorageStats {
+            destination_root: dest.clone(),
+            file_count: count,
+            total_size: size,
+        });
+    }
+
+    Ok(StorageStats {
+        total_source_files: total_files,
+        total_source_size: total_size,
+        destination_stats: dest_stats,
+    })
+}
+
+/// Helper function to format bytes as human-readable string
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit_idx = 0;
+
+    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_idx += 1;
+    }
+
+    format!("{:.1} {}", size, UNITS[unit_idx])
+}
+
+/// Get total count of source files in the database
+pub fn get_total_source_files() -> Result<u64> {
+    let conn = get_connection()?;
+
+    let count: u64 = conn.query_row(
+        "SELECT COUNT(*) FROM Source_Files",
+        [],
+        |row| row.get(0)
+    ).map_err(|cause| BackupError::DatabaseQuery {
+        operation: "get_total_source_files".to_string(),
+        cause,
+    })?;
+
+    Ok(count)
+}
+
+/// Get total size of all source files in the database (in bytes)
+pub fn get_total_source_size() -> Result<u64> {
+    let conn = get_connection()?;
+
+    let size: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(File_Size), 0) FROM Source_Files",
+        [],
+        |row| row.get(0)
+    ).map_err(|cause| BackupError::DatabaseQuery {
+        operation: "get_total_source_size".to_string(),
+        cause,
+    })?;
+
+    Ok(size as u64)
 }
 
 #[cfg(test)]

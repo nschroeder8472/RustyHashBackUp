@@ -105,61 +105,63 @@
     <div class="grid grid-cols-3 gap-4">
         <div class="col-span-2 bg-dark-surface border border-dark-border rounded-lg p-6">
             <h2 class="text-lg font-semibold text-white mb-4">Storage Overview</h2>
-            <div class="space-y-4">
-                <div>
-                    <div class="flex justify-between text-sm mb-2">
-                        <span class="text-gray-400">Destination 1: /backup/dest1</span>
-                        <span class="text-white">156.2 GB / 500 GB</span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-green-500 h-2 rounded-full" style="width: 31%"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="flex justify-between text-sm mb-2">
-                        <span class="text-gray-400">Destination 2: /backup/dest2</span>
-                        <span class="text-white">284.7 GB / 500 GB</span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-yellow-500 h-2 rounded-full" style="width: 57%"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="flex justify-between text-sm mb-2">
-                        <span class="text-gray-400">Destination 3: /backup/dest3</span>
-                        <span class="text-white">423.1 GB / 500 GB</span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-red-500 h-2 rounded-full" style="width: 85%"></div>
-                    </div>
+            <div class="space-y-4"
+                 hx-get="/api/storage/overview"
+                 hx-trigger="load, every 60s"
+                 hx-swap="innerHTML">
+                <!-- Loading placeholder -->
+                <div class="text-center text-gray-500 py-4">
+                    <p class="text-sm">Loading storage information...</p>
                 </div>
             </div>
         </div>
 
-        <!-- Quick Stats -->
+        <!-- Quick Actions -->
         <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
-            <h2 class="text-lg font-semibold text-white mb-4">Quick Stats</h2>
+            <h2 class="text-lg font-semibold text-white mb-4">Quick Actions</h2>
+
+            <!-- Response message area -->
+            <div id="backup-action-response" class="mb-3"></div>
+
             <div class="space-y-3">
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-400">Successful Backups</span>
-                    <span class="text-sm text-green-400 font-semibold">1,247</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-400">Failed Backups</span>
-                    <span class="text-sm text-red-400 font-semibold">3</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-400">Files Changed Today</span>
-                    <span class="text-sm text-blue-400 font-semibold">127</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-400">Avg Backup Time</span>
-                    <span class="text-sm text-white font-semibold">4m 32s</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-gray-400">Database Size</span>
-                    <span class="text-sm text-white font-semibold">45.2 MB</span>
-                </div>
+                <button class="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm"
+                        hx-post="/api/start"
+                        hx-ext="json-enc"
+                        hx-vals='{"dry_run": false, "quiet": false}'
+                        onclick="showBackupStarted(this, false)">
+                    <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Run Backup Now
+                </button>
+
+                <button class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+                        hx-post="/api/start"
+                        hx-ext="json-enc"
+                        hx-vals='{"dry_run": true, "quiet": false}'
+                        onclick="showBackupStarted(this, true)">
+                    <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Dry Run (Preview)
+                </button>
+
+                <a href="/configuration" class="block w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm text-center">
+                    <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Configure
+                </a>
+
+                <a href="/logs" class="block w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm text-center">
+                    <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    View All Logs
+                </a>
             </div>
         </div>
     </div>
@@ -174,5 +176,49 @@
         document.getElementById('last-update').textContent = 'just now';
     }
     setInterval(updateTimestamp, 30000);
+
+    // Show immediate feedback when backup is started
+    function showBackupStarted(button, isDryRun) {
+        const responseDiv = document.getElementById('backup-action-response');
+        const mode = isDryRun ? 'Dry Run' : 'Backup';
+        responseDiv.innerHTML = `
+            <div class="bg-blue-500/20 border border-blue-500 rounded-lg p-3">
+                <p class="text-blue-400 text-sm">Starting ${mode}...</p>
+            </div>
+        `;
+    }
+
+    // Handle HTMX response from /api/start endpoint
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        if (event.detail.pathInfo.requestPath === '/api/start') {
+            const responseDiv = document.getElementById('backup-action-response');
+
+            try {
+                const response = JSON.parse(event.detail.xhr.responseText);
+
+                if (response.success) {
+                    responseDiv.innerHTML = `
+                        <div class="bg-green-500/20 border border-green-500 rounded-lg p-3">
+                            <p class="text-green-400 text-sm font-semibold">Success!</p>
+                            <p class="text-green-400 text-xs mt-1">${response.message}</p>
+                        </div>
+                    `;
+                } else {
+                    responseDiv.innerHTML = `
+                        <div class="bg-red-500/20 border border-red-500 rounded-lg p-3">
+                            <p class="text-red-400 text-sm font-semibold">Error</p>
+                            <p class="text-red-400 text-xs mt-1">${response.message}</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                responseDiv.innerHTML = `
+                    <div class="bg-red-500/20 border border-red-500 rounded-lg p-3">
+                        <p class="text-red-400 text-sm">Failed to parse response</p>
+                    </div>
+                `;
+            }
+        }
+    });
 </script>
 {% endblock %}

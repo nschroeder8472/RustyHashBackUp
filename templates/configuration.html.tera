@@ -13,9 +13,7 @@
                 Reload
             </button>
             <button class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-                    hx-post="/api/config"
-                    hx-include="#config-form"
-                    hx-swap="none">
+                    onclick="saveConfig()">
                 <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
@@ -24,10 +22,7 @@
         </div>
     </div>
 
-    <form id="config-form" class="space-y-6"
-          hx-get="/api/config"
-          hx-trigger="load"
-          hx-swap="none">
+    <form id="config-form" class="space-y-6">
 
         <!-- Database Settings -->
         <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
@@ -195,13 +190,13 @@
                     </svg>
                     Backup Sources
                 </h2>
-                <button type="button" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors">
+                <button type="button" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors" onclick="addSource()">
                     + Add Source
                 </button>
             </div>
             <div class="space-y-4" id="backup-sources">
                 <!-- Dynamic source entries will be loaded here -->
-                <div class="p-4 bg-dark-bg border border-dark-border rounded-lg">
+                <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
                     <div class="flex items-start justify-between">
                         <div class="flex-1 space-y-3">
                             <input type="text"
@@ -222,7 +217,7 @@
                                        value=".git,node_modules">
                             </div>
                         </div>
-                        <button type="button" class="ml-3 text-red-400 hover:text-red-300">
+                        <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
@@ -241,31 +236,31 @@
                     </svg>
                     Backup Destinations
                 </h2>
-                <button type="button" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors">
+                <button type="button" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors" onclick="addDestination()">
                     + Add Destination
                 </button>
             </div>
             <div class="space-y-3" id="backup-destinations">
                 <!-- Dynamic destination entries will be loaded here -->
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-3 destination-entry">
                     <input type="text"
                            name="destination_0"
                            class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                            placeholder="/path/to/destination"
                            value="/backup/dest1">
-                    <button type="button" class="text-red-400 hover:text-red-300">
+                    <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                     </button>
                 </div>
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-3 destination-entry">
                     <input type="text"
                            name="destination_1"
                            class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                            placeholder="/path/to/destination"
                            value="/backup/dest2">
-                    <button type="button" class="text-red-400 hover:text-red-300">
+                    <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -274,6 +269,9 @@
             </div>
         </div>
     </form>
+
+    <!-- Form Response Container -->
+    <div id="config-response"></div>
 
     <!-- Validation Status -->
     <div class="bg-dark-surface border border-dark-border rounded-lg p-6 hidden" id="validation-status">
@@ -290,9 +288,259 @@
 </div>
 
 <script>
+    // Load configuration on page load
+    window.addEventListener('DOMContentLoaded', function() {
+        loadConfig();
+    });
+
     function loadConfig() {
-        // Trigger HTMX to reload config from API
-        htmx.trigger('#config-form', 'load');
+        // Fetch config from API and populate form
+        fetch('/api/config')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.config) {
+                    populateForm(data.config);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading config:', error);
+            });
+    }
+
+    function populateForm(config) {
+        // Populate form fields with config data
+        document.querySelector('input[name="database_file"]').value = config.database_file || '';
+        document.querySelector('input[name="max_threads"]').value = config.max_threads || 8;
+        document.querySelector('input[name="max_mebibytes_for_hash"]').value = config.max_mebibytes_for_hash || 1;
+        document.querySelector('input[name="skip_source_hash_check_if_newer"]').checked = config.skip_source_hash_check_if_newer || false;
+        document.querySelector('input[name="force_overwrite_backup"]').checked = config.force_overwrite_backup || false;
+        document.querySelector('input[name="overwrite_backup_if_existing_is_newer"]').checked = config.overwrite_backup_if_existing_is_newer || false;
+        document.querySelector('input[name="schedule"]').value = config.schedule || '';
+
+        // Clear existing sources (keep container)
+        const sourcesContainer = document.getElementById('backup-sources');
+        sourcesContainer.innerHTML = '';
+
+        // Populate sources
+        if (config.backup_sources && config.backup_sources.length > 0) {
+            config.backup_sources.forEach((source, index) => {
+                if (index === 0) {
+                    // Add first source
+                    sourcesContainer.innerHTML = `
+                        <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1 space-y-3">
+                                    <input type="text" name="source_path_0" class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/source" value="${source.parent_directory || ''}">
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <input type="number" name="source_max_depth_0" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Max depth (optional)" value="${source.max_depth || ''}">
+                                        <input type="text" name="source_skip_dirs_0" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Skip dirs (comma separated)" value="${source.skip_dirs ? source.skip_dirs.join(',') : ''}">
+                                    </div>
+                                </div>
+                                <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    sourceCount = 1;
+                } else {
+                    // Add additional sources
+                    const sourceHtml = `
+                        <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1 space-y-3">
+                                    <input type="text" name="source_path_${index}" class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/source" value="${source.parent_directory || ''}">
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <input type="number" name="source_max_depth_${index}" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Max depth (optional)" value="${source.max_depth || ''}">
+                                        <input type="text" name="source_skip_dirs_${index}" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Skip dirs (comma separated)" value="${source.skip_dirs ? source.skip_dirs.join(',') : ''}">
+                                    </div>
+                                </div>
+                                <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    sourcesContainer.insertAdjacentHTML('beforeend', sourceHtml);
+                    sourceCount = index + 1;
+                }
+            });
+        }
+
+        // Clear existing destinations
+        const destContainer = document.getElementById('backup-destinations');
+        destContainer.innerHTML = '';
+
+        // Populate destinations
+        if (config.backup_destinations && config.backup_destinations.length > 0) {
+            config.backup_destinations.forEach((dest, index) => {
+                const destHtml = `
+                    <div class="flex items-center space-x-3 destination-entry">
+                        <input type="text" name="destination_${index}" class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/destination" value="${dest || ''}">
+                        <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </div>
+                `;
+                destContainer.insertAdjacentHTML('beforeend', destHtml);
+                destCount = index + 1;
+            });
+        }
+    }
+
+    function saveConfig() {
+        // Collect form data and build config JSON
+        const form = document.getElementById('config-form');
+        const formData = new FormData(form);
+
+        // Collect all sources dynamically
+        const sources = [];
+        let sourceIndex = 0;
+        while (document.querySelector(`input[name="source_path_${sourceIndex}"]`)) {
+            const path = formData.get(`source_path_${sourceIndex}`) || '';
+            if (path.trim()) {  // Only add if path is not empty
+                const source = {
+                    parent_directory: path.trim()
+                };
+
+                // Only include max_depth if it's specified (not empty)
+                const maxDepthValue = formData.get(`source_max_depth_${sourceIndex}`);
+                if (maxDepthValue && maxDepthValue.trim() !== '') {
+                    source.max_depth = parseInt(maxDepthValue);
+                }
+
+                // Only include skip_dirs if specified
+                const skipDirsValue = formData.get(`source_skip_dirs_${sourceIndex}`);
+                if (skipDirsValue && skipDirsValue.trim() !== '') {
+                    source.skip_dirs = skipDirsValue.split(',').map(s => s.trim()).filter(s => s);
+                } else {
+                    source.skip_dirs = [];
+                }
+
+                sources.push(source);
+            }
+            sourceIndex++;
+        }
+
+        // Validate: At least one source is required
+        if (sources.length === 0) {
+            document.getElementById('config-response').innerHTML =
+                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4"><p class="text-red-400">At least one backup source must be configured</p></div>';
+            return;
+        }
+
+        // Collect all destinations dynamically
+        const destinations = [];
+        let destIndex = 0;
+        while (document.querySelector(`input[name="destination_${destIndex}"]`)) {
+            const dest = formData.get(`destination_${destIndex}`) || '';
+            if (dest.trim()) {  // Only add if destination is not empty
+                destinations.push(dest.trim());
+            }
+            destIndex++;
+        }
+
+        // Validate: At least one destination is required
+        if (destinations.length === 0) {
+            document.getElementById('config-response').innerHTML =
+                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4"><p class="text-red-400">At least one backup destination must be configured</p></div>';
+            return;
+        }
+
+        // Build config object from form data
+        const config = {
+            database_file: formData.get('database_file') || '',
+            max_threads: parseInt(formData.get('max_threads')) || 8,
+            max_mebibytes_for_hash: parseInt(formData.get('max_mebibytes_for_hash')) || 1,
+            skip_source_hash_check_if_newer: formData.get('skip_source_hash_check_if_newer') === 'on',
+            force_overwrite_backup: formData.get('force_overwrite_backup') === 'on',
+            overwrite_backup_if_existing_is_newer: formData.get('overwrite_backup_if_existing_is_newer') === 'on',
+            schedule: formData.get('schedule') || null,
+            backup_sources: sources.length > 0 ? sources : [],
+            backup_destinations: destinations
+        };
+
+        // Send as JSON directly to the API
+        fetch('/api/config/form', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('config-response').innerHTML = html;
+        })
+        .catch(error => {
+            console.error('Error saving config:', error);
+            document.getElementById('config-response').innerHTML =
+                '<div class="bg-red-500/20 border border-red-500 rounded-lg p-4 text-red-400">Error saving configuration</div>';
+        });
+    }
+
+    // Add source directory
+    let sourceCount = 1;
+    function addSource() {
+        const container = document.getElementById('backup-sources');
+        const sourceHtml = `
+            <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1 space-y-3">
+                        <input type="text"
+                               name="source_path_${sourceCount}"
+                               class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                               placeholder="/path/to/source">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="number"
+                                   name="source_max_depth_${sourceCount}"
+                                   class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                   placeholder="Max depth (optional)">
+                            <input type="text"
+                                   name="source_skip_dirs_${sourceCount}"
+                                   class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                   placeholder="Skip dirs (comma separated)">
+                        </div>
+                    </div>
+                    <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', sourceHtml);
+        sourceCount++;
+    }
+
+    function removeSource(button) {
+        button.closest('.source-entry').remove();
+    }
+
+    // Add destination
+    let destCount = 2;
+    function addDestination() {
+        const container = document.getElementById('backup-destinations');
+        const destHtml = `
+            <div class="flex items-center space-x-3 destination-entry">
+                <input type="text"
+                       name="destination_${destCount}"
+                       class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                       placeholder="/path/to/destination">
+                <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </button>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', destHtml);
+        destCount++;
+    }
+
+    function removeDestination(button) {
+        button.closest('.destination-entry').remove();
     }
 </script>
 {% endblock %}

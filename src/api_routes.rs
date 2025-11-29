@@ -2,14 +2,17 @@ use crate::api_state::AppState;
 use crate::models::api::*;
 use crate::models::config::Config;
 use crate::models::dry_run_mode::DryRunMode;
+use crate::repo::sqlite;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::{State, response::stream::{EventStream, Event}};
 use rocket::tokio::select;
 use rocket::tokio::time::{interval, Duration};
+use rocket_dyn_templates::{Template, context};
+use serde_json::json;
 
-/// GET /api/config - Get current configuration
-#[get("/config")]
+/// GET /api/config - Get current configuration (JSON)
+#[get("/config", rank = 2)]
 pub fn get_config(state: &State<AppState>) -> Result<Json<ConfigResponse>, Status> {
     match state.get_config() {
         Some(config) => Ok(Json(ConfigResponse {
@@ -25,7 +28,17 @@ pub fn get_config(state: &State<AppState>) -> Result<Json<ConfigResponse>, Statu
     }
 }
 
-/// POST /api/config - Set configuration
+/// GET /api/config/form - Get configuration form fields pre-populated (HTML)
+#[get("/config/form")]
+pub fn get_config_form(state: &State<AppState>) -> Template {
+    let config = state.get_config();
+
+    Template::render("partials/config_form_fields", context! {
+        config,
+    })
+}
+
+/// POST /api/config - Set configuration (JSON)
 #[post("/config", format = "json", data = "<config>")]
 pub fn set_config(
     config: Json<Config>,
@@ -40,13 +53,102 @@ pub fn set_config(
         }));
     }
 
+    // Reinitialize database if path changed
+    reinitialize_database(&config.0.database_file);
+
     state.set_config(config.0.clone());
+
+    // Log configuration change
+    let _ = sqlite::insert_log_entry(
+        "INFO",
+        "Configuration updated via API",
+        Some("api_routes::set_config")
+    );
 
     Ok(Json(ConfigResponse {
         success: true,
         message: "Configuration set successfully".to_string(),
         config: Some(config.0),
     }))
+}
+
+/// POST /api/config/form - Set configuration (JSON, returns HTML)
+#[post("/config/form", format = "json", data = "<config>")]
+pub fn set_config_form(
+    config: Json<Config>,
+    state: &State<AppState>,
+) -> Template {
+    // Validate configuration
+    if let Err(e) = crate::models::config_validator::validate_config(&config.0) {
+        return Template::render("partials/config_form_response", context! {
+            success: false,
+            message: "Configuration validation failed",
+            details: e.to_string(),
+        });
+    }
+
+    // Reinitialize database if path changed
+    reinitialize_database(&config.0.database_file);
+
+    state.set_config(config.0.clone());
+
+    // Log configuration change
+    let _ = sqlite::insert_log_entry(
+        "INFO",
+        "Configuration updated via form",
+        Some("api_routes::set_config_form")
+    );
+
+    Template::render("partials/config_form_response", context! {
+        success: true,
+        message: "Configuration saved successfully",
+    })
+}
+
+/// Helper function to reinitialize database when config changes
+fn reinitialize_database(db_path: &str) {
+    use std::path::Path;
+
+    let db_file = if db_path.is_empty() {
+        ":memory:".to_string()
+    } else {
+        db_path.to_string()
+    };
+
+    log::info!("Reinitializing database: {}", db_file);
+
+    // Check if it's a file path and the directory exists
+    if db_file != ":memory:" && !db_file.starts_with("file::memory:") {
+        let path = Path::new(&db_file);
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                log::warn!("Database directory does not exist, using in-memory database instead");
+                if let Err(e) = sqlite::set_db_pool(":memory:") {
+                    log::error!("Failed to initialize in-memory database: {}", e);
+                    return;
+                }
+            } else {
+                if let Err(e) = sqlite::set_db_pool(&db_file) {
+                    log::error!("Failed to initialize database at {}: {}", db_file, e);
+                    log::info!("Falling back to in-memory database");
+                    let _ = sqlite::set_db_pool(":memory:");
+                    return;
+                }
+            }
+        }
+    } else {
+        if let Err(e) = sqlite::set_db_pool(&db_file) {
+            log::error!("Failed to initialize database: {}", e);
+            return;
+        }
+    }
+
+    // Setup database schema
+    if let Err(e) = sqlite::setup_database() {
+        log::error!("Failed to setup database schema: {}", e);
+    } else {
+        log::info!("Database initialized successfully");
+    }
 }
 
 /// GET /api/status - Get current backup status
@@ -264,53 +366,74 @@ fn format_time_ago(timestamp: &str) -> String {
 
 /// GET /api/dashboard/metrics - Get dashboard metrics
 #[get("/dashboard/metrics")]
-pub fn get_dashboard_metrics(state: &State<AppState>) -> Json<DashboardMetrics> {
+pub fn get_dashboard_metrics(state: &State<AppState>) -> Template {
     let status = state.get_status();
     let history = state.get_history();
+    let config = state.get_config();
 
     // Get the most recent backup from history
-    let last_backup = history.first().map(|entry| DashboardMetric {
-        title: "Last Backup".to_string(),
-        value: format_time_ago(&entry.started_at),
-        subtitle: format!("{:?}", entry.status),
-        icon: "clock".to_string(),
-        color: match entry.status {
-            BackupStatus::Completed => "green",
-            BackupStatus::Failed => "red",
-            BackupStatus::Running => "blue",
-            _ => "gray",
-        }.to_string(),
+    let last_backup = history.first().map(|entry| {
+        json!({
+            "time_ago": format_time_ago(&entry.started_at),
+            "status": format!("{:?}", entry.status),
+            "color": match entry.status {
+                BackupStatus::Completed => "green",
+                BackupStatus::Failed => "red",
+                BackupStatus::Running => "blue",
+                _ => "gray",
+            }
+        })
     });
 
     // Current backup status
-    let current_status = DashboardMetric {
-        title: "Current Status".to_string(),
-        value: format!("{:?}", status),
-        subtitle: if status == BackupStatus::Running { "In progress" } else { "Idle" }.to_string(),
-        icon: "activity".to_string(),
-        color: match status {
+    let current_status = json!({
+        "value": format!("{:?}", status),
+        "subtitle": if status == BackupStatus::Running { "In progress" } else { "Idle" },
+        "color": match status {
             BackupStatus::Running => "blue",
             BackupStatus::Failed => "red",
             BackupStatus::Completed => "green",
             _ => "gray",
-        }.to_string(),
-    };
+        }
+    });
 
-    // Total backups count
-    let total_backups = DashboardMetric {
-        title: "Total Backups".to_string(),
-        value: history.len().to_string(),
-        subtitle: "All time".to_string(),
-        icon: "database".to_string(),
-        color: "purple".to_string(),
-    };
+    // Continuous backup status (placeholder - not yet implemented)
+    let continuous_backup = json!({
+        "status": "Disabled",
+        "subtitle": "Manual mode",
+        "color": "gray"
+    });
 
-    let mut metrics = vec![current_status, total_backups];
-    if let Some(last) = last_backup {
-        metrics.insert(0, last);
-    }
+    // Query database for total files backed up
+    let total_source_files = sqlite::get_total_source_files().unwrap_or(0);
+    let total_source_size = sqlite::get_total_source_size().unwrap_or(0);
+    let total_files = json!({
+        "value": total_source_files.to_string(),
+        "subtitle": sqlite::format_bytes(total_source_size)
+    });
 
-    Json(DashboardMetrics { metrics })
+    // Source directories from config
+    let source_count = config.as_ref().map(|c| c.backup_sources.len()).unwrap_or(0);
+    let source_directories = json!({
+        "count": source_count.to_string(),
+        "size": format!("{} files", total_source_files)
+    });
+
+    // Backup destinations from config
+    let dest_count = config.as_ref().map(|c| c.backup_destinations.len()).unwrap_or(0);
+    let backup_destinations = json!({
+        "count": dest_count.to_string(),
+        "status": if dest_count > 0 { "Active" } else { "None configured" }
+    });
+
+    Template::render("partials/dashboard_metrics", context! {
+        last_backup,
+        current_status,
+        continuous_backup,
+        total_files,
+        source_directories,
+        backup_destinations,
+    })
 }
 
 /// GET /api/progress - Get current backup progress
@@ -319,79 +442,181 @@ pub fn get_progress(state: &State<AppState>) -> Json<Option<BackupProgress>> {
     Json(state.get_progress())
 }
 
-/// GET /api/logs - Get all logs
-#[get("/logs")]
-pub fn get_logs(state: &State<AppState>) -> Json<LogsResponse> {
-    let history = state.get_history();
+/// GET /api/logs - Get all logs with optional filters
+#[get("/logs?<level>&<since>&<search>&<limit>&<offset>")]
+pub fn get_logs(
+    level: Option<String>,
+    since: Option<i64>,
+    search: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Template {
+    use chrono::DateTime;
 
-    // Convert history entries to log format
-    let logs: Vec<LogEntry> = history
+    // Query database for logs with filters
+    let logs = sqlite::query_logs(
+        level.as_deref(),
+        since,
+        search.as_deref(),
+        limit,
+        offset,
+    ).unwrap_or_else(|_| vec![]);
+
+    // Format logs for display
+    let formatted_logs: Vec<serde_json::Value> = logs
         .iter()
-        .flat_map(|entry| {
-            let mut entries = vec![LogEntry {
-                timestamp: entry.started_at.clone(),
-                level: "INFO".to_string(),
-                message: format!("Backup started (ID: {})", entry.id),
-            }];
+        .map(|log| {
+            // Format timestamp as human-readable
+            let formatted_time = if let Some(dt) = DateTime::from_timestamp(log.timestamp, 0) {
+                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+            } else {
+                "Unknown".to_string()
+            };
 
-            if let Some(completed) = &entry.completed_at {
-                entries.push(LogEntry {
-                    timestamp: completed.clone(),
-                    level: match entry.status {
-                        BackupStatus::Completed => "INFO",
-                        BackupStatus::Failed => "ERROR",
-                        _ => "WARN",
-                    }
-                    .to_string(),
-                    message: format!(
-                        "Backup {} - {} files processed",
-                        match entry.status {
-                            BackupStatus::Completed => "completed",
-                            BackupStatus::Failed => "failed",
-                            _ => "stopped",
-                        },
-                        entry.files_processed
-                    ),
-                });
-            }
-
-            if let Some(error) = &entry.error {
-                entries.push(LogEntry {
-                    timestamp: entry.completed_at.clone().unwrap_or_else(|| entry.started_at.clone()),
-                    level: "ERROR".to_string(),
-                    message: error.clone(),
-                });
-            }
-
-            entries
+            json!({
+                "level": log.level,
+                "message": log.message,
+                "context": log.context,
+                "source": log.source,
+                "timestamp": log.timestamp,
+                "formatted_time": formatted_time,
+            })
         })
         .collect();
 
-    let total = logs.len();
-    Json(LogsResponse { logs, total })
+    Template::render("partials/log_entries", context! {
+        logs: formatted_logs,
+    })
 }
 
 /// GET /api/logs/recent - Get recent logs (last 50)
 #[get("/logs/recent")]
-pub fn get_recent_logs(state: &State<AppState>) -> Json<LogsResponse> {
-    let all_logs = get_logs(state).into_inner();
-    let recent_logs: Vec<LogEntry> = all_logs.logs.into_iter().take(50).collect();
-    let total = recent_logs.len();
+pub fn get_recent_logs() -> Template {
+    use chrono::DateTime;
 
-    Json(LogsResponse {
-        logs: recent_logs,
-        total,
+    // Query database for recent logs (last 50)
+    let logs = sqlite::query_logs(None, None, None, Some(50), None)
+        .unwrap_or_else(|_| vec![]);
+
+    // Format logs for display
+    let formatted_logs: Vec<serde_json::Value> = logs
+        .iter()
+        .map(|log| {
+            // Format timestamp as human-readable
+            let formatted_time = if let Some(dt) = DateTime::from_timestamp(log.timestamp, 0) {
+                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+            } else {
+                "Unknown".to_string()
+            };
+
+            json!({
+                "level": log.level,
+                "message": log.message,
+                "context": log.context,
+                "source": log.source,
+                "timestamp": log.timestamp,
+                "formatted_time": formatted_time,
+            })
+        })
+        .collect();
+
+    Template::render("partials/logs_preview_items", context! {
+        logs: formatted_logs,
     })
 }
 
 /// POST /api/logs/clear - Clear log history
 #[post("/logs/clear")]
-pub fn clear_logs(state: &State<AppState>) -> Json<serde_json::Value> {
-    state.clear_history();
-    Json(serde_json::json!({
-        "success": true,
-        "message": "Logs cleared successfully"
-    }))
+pub fn clear_logs() -> Json<serde_json::Value> {
+    match sqlite::delete_all_logs() {
+        Ok(count) => Json(json!({
+            "success": true,
+            "message": format!("Cleared {} log entries", count)
+        })),
+        Err(e) => Json(json!({
+            "success": false,
+            "message": format!("Failed to clear logs: {}", e)
+        }))
+    }
+}
+
+/// GET /api/logs/stats - Get log statistics by level
+#[get("/logs/stats")]
+pub fn get_log_stats() -> Template {
+    // Query database for log counts by level
+    let error_count = sqlite::query_logs(Some("ERROR"), None, None, None, None)
+        .map(|logs| logs.len())
+        .unwrap_or(0);
+
+    let warn_count = sqlite::query_logs(Some("WARN"), None, None, None, None)
+        .map(|logs| logs.len())
+        .unwrap_or(0);
+
+    let info_count = sqlite::query_logs(Some("INFO"), None, None, None, None)
+        .map(|logs| logs.len())
+        .unwrap_or(0);
+
+    let debug_count = sqlite::query_logs(Some("DEBUG"), None, None, None, None)
+        .map(|logs| logs.len())
+        .unwrap_or(0);
+
+    let trace_count = sqlite::query_logs(Some("TRACE"), None, None, None, None)
+        .map(|logs| logs.len())
+        .unwrap_or(0);
+
+    let total_count = error_count + warn_count + info_count + debug_count + trace_count;
+
+    Template::render("partials/log_stats", context! {
+        error_count,
+        warn_count,
+        info_count,
+        debug_count,
+        trace_count,
+        total_count,
+    })
+}
+
+/// GET /api/storage/overview - Get storage overview
+#[get("/storage/overview")]
+pub fn get_storage_overview(state: &State<AppState>) -> Template {
+    let config = state.get_config();
+
+    // Get destination paths from config
+    let destinations = config
+        .as_ref()
+        .map(|c| c.backup_destinations.clone())
+        .unwrap_or_default();
+
+    // Query database for storage statistics
+    let storage_stats = sqlite::get_storage_overview(&destinations).unwrap_or_else(|_| {
+        crate::models::storage::StorageStats {
+            total_source_files: 0,
+            total_source_size: 0,
+            destination_stats: vec![],
+        }
+    });
+
+    // Format destination stats for template
+    let formatted_destinations: Vec<serde_json::Value> = storage_stats
+        .destination_stats
+        .iter()
+        .map(|dest| {
+            let size_formatted = sqlite::format_bytes(dest.total_size);
+            // Calculate percentage (placeholder - real implementation would need max capacity)
+            let percentage = ((dest.total_size as f64 / 1_000_000_000_000.0) * 100.0).min(100.0) as u32;
+
+            json!({
+                "path": dest.destination_root,
+                "size_formatted": size_formatted,
+                "file_count": dest.file_count,
+                "percentage": percentage,
+            })
+        })
+        .collect();
+
+    Template::render("partials/storage_overview", context! {
+        destinations: formatted_destinations,
+    })
 }
 
 // ============================================================================

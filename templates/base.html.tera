@@ -14,6 +14,9 @@
     <!-- HTMX SSE Extension -->
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
 
+    <!-- HTMX JSON Encode Extension -->
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
+
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/custom.css">
 

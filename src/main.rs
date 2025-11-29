@@ -28,6 +28,18 @@ use rocket::fs::{FileServer, relative};
 use rocket_dyn_templates::Template;
 
 fn build_rocket() -> rocket::Rocket<rocket::Build> {
+    // Initialize database with memory storage (will be reconfigured when config is set)
+    info!("Initializing database with in-memory storage");
+    if let Err(e) = set_db_pool(":memory:") {
+        eprintln!("Failed to initialize in-memory database: {}", e);
+    } else {
+        if let Err(e) = setup_database() {
+            eprintln!("Failed to setup database schema: {}", e);
+        } else {
+            info!("In-memory database initialized successfully");
+        }
+    }
+
     // Initialize application state
     let app_state = AppState::new();
 
@@ -44,7 +56,9 @@ fn build_rocket() -> rocket::Rocket<rocket::Build> {
         ])
         .mount("/api", routes![
             api_routes::get_config,
+            api_routes::get_config_form,
             api_routes::set_config,
+            api_routes::set_config_form,
             api_routes::get_status,
             api_routes::start_backup,
             api_routes::stop_backup,
@@ -56,7 +70,9 @@ fn build_rocket() -> rocket::Rocket<rocket::Build> {
             api_routes::get_progress,
             api_routes::get_logs,
             api_routes::get_recent_logs,
+            api_routes::get_log_stats,
             api_routes::clear_logs,
+            api_routes::get_storage_overview,
             // Path aliases for RESTful naming
             api_routes::start_backup_alias,
             api_routes::stop_backup_alias,
@@ -66,6 +82,12 @@ fn build_rocket() -> rocket::Rocket<rocket::Build> {
 
 #[rocket::main]
 async fn main() -> Result<()> {
+    // Initialize logging
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .format_timestamp_secs()
+        .init();
+
     let args = Cli::parse();
 
     if args.api_mode {
