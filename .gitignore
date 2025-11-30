@@ -1,3 +1,5 @@
-/target
+/backend/target
 /.claude
+/web/node_modules
+nul
 /.idea

@@ -1,0 +1,40 @@
+{% for log in logs %}
+<div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="{{ log.level }}" data-time="{{ log.timestamp }}">
+    <div class="flex items-start space-x-3">
+        {% if log.level == "ERROR" %}
+        <span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs font-medium rounded uppercase">Error</span>
+        {% elif log.level == "WARN" %}
+        <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded uppercase">Warn</span>
+        {% elif log.level == "INFO" %}
+        <span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded uppercase">Info</span>
+        {% elif log.level == "DEBUG" %}
+        <span class="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs font-medium rounded uppercase">Debug</span>
+        {% elif log.level == "TRACE" %}
+        <span class="px-2 py-1 bg-purple-500/20 text-purple-400 text-xs font-medium rounded uppercase">Trace</span>
+        {% endif %}
+
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+                <p class="text-sm text-gray-300 font-mono">{{ log.message }}</p>
+                <span class="text-xs text-gray-500">{{ log.formatted_time }}</span>
+            </div>
+            {% if log.context %}
+            <p class="text-xs text-gray-500 mt-1">{{ log.context }}</p>
+            {% endif %}
+            {% if log.source %}
+            <p class="text-xs text-gray-600 mt-1">{{ log.source }}</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% if logs | length == 0 %}
+<div class="p-8 text-center text-gray-500">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+    <p class="text-lg">No logs found</p>
+    <p class="text-sm mt-2">Try adjusting your filters or run a backup to generate logs</p>
+</div>
+{% endif %}

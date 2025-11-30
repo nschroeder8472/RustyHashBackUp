@@ -1,0 +1,63 @@
+{% import "partials/metric_card" as metrics %}
+
+{# Row 1 - Status metrics #}
+{% if last_backup %}
+{{ metrics::card(
+    title="Last Backup",
+    value=last_backup.time_ago,
+    subtitle=last_backup.status,
+    icon=metrics::icon_clock(),
+    color=last_backup.color
+) }}
+{% endif %}
+
+{% if current_status %}
+{{ metrics::card(
+    title="Current Status",
+    value=current_status.value,
+    subtitle=current_status.subtitle,
+    icon=metrics::icon_chart_bar(),
+    color=current_status.color
+) }}
+{% endif %}
+
+{% if continuous_backup %}
+{{ metrics::card(
+    title="Continuous Backup",
+    value=continuous_backup.status,
+    subtitle=continuous_backup.subtitle,
+    icon=metrics::icon_check_circle(),
+    color=continuous_backup.color
+) }}
+{% endif %}
+
+{# Row 2 - Statistics #}
+{% if total_files %}
+{{ metrics::card(
+    title="Total Files Backed Up",
+    value=total_files.value,
+    subtitle=total_files.subtitle,
+    icon=metrics::icon_database(),
+    color="indigo"
+) }}
+{% endif %}
+
+{% if source_directories %}
+{{ metrics::card(
+    title="Source Directories",
+    value=source_directories.count,
+    subtitle=source_directories.size,
+    icon=metrics::icon_folder(),
+    color="yellow"
+) }}
+{% endif %}
+
+{% if backup_destinations %}
+{{ metrics::card(
+    title="Backup Destinations",
+    value=backup_destinations.count,
+    subtitle=backup_destinations.status,
+    icon=metrics::icon_server(),
+    color="teal"
+) }}
+{% endif %}
