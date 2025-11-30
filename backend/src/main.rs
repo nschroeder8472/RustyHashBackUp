@@ -68,26 +68,22 @@ fn build_rocket(args: Cli) -> rocket::Rocket<rocket::Build> {
             if let Err(e) = set_db_pool(":memory:") {
                 eprintln!("Failed to initialize in-memory database: {}", e);
             }
+        } else if let Err(e) = setup_database() {
+            eprintln!("Failed to setup database schema: {}", e);
         } else {
-            if let Err(e) = setup_database() {
-                eprintln!("Failed to setup database schema: {}", e);
-            } else {
-                info!(
-                    "Database initialized successfully: {}",
-                    config.database_file
-                );
-            }
+            info!(
+                "Database initialized successfully: {}",
+                config.database_file
+            );
         }
     } else {
         info!("Initializing database with in-memory storage");
         if let Err(e) = set_db_pool(":memory:") {
             eprintln!("Failed to initialize in-memory database: {}", e);
+        } else if let Err(e) = setup_database() {
+            eprintln!("Failed to setup database schema: {}", e);
         } else {
-            if let Err(e) = setup_database() {
-                eprintln!("Failed to setup database schema: {}", e);
-            } else {
-                info!("In-memory database initialized successfully");
-            }
+            info!("In-memory database initialized successfully");
         }
     }
 

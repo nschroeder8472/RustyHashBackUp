@@ -297,20 +297,16 @@ fn reinitialize_database(db_path: &str) {
                     log::error!("Failed to initialize in-memory database: {}", e);
                     return;
                 }
-            } else {
-                if let Err(e) = sqlite::set_db_pool(&db_file) {
-                    log::error!("Failed to initialize database at {}: {}", db_file, e);
-                    log::info!("Falling back to in-memory database");
-                    let _ = sqlite::set_db_pool(":memory:");
-                    return;
-                }
+            } else if let Err(e) = sqlite::set_db_pool(&db_file) {
+                log::error!("Failed to initialize database at {}: {}", db_file, e);
+                log::info!("Falling back to in-memory database");
+                let _ = sqlite::set_db_pool(":memory:");
+                return;
             }
         }
-    } else {
-        if let Err(e) = sqlite::set_db_pool(&db_file) {
-            log::error!("Failed to initialize database: {}", e);
-            return;
-        }
+    } else if let Err(e) = sqlite::set_db_pool(&db_file) {
+        log::error!("Failed to initialize database: {}", e);
+        return;
     }
 
     // Setup database schema
