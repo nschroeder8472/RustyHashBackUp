@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default(value="RustyHashBackup") }} - RustyHashBackup</title>
+
+    <!-- Tailwind CSS (compiled with custom components) -->
+    <link rel="stylesheet" href="/static/css/tailwind.output.css">
+
+    <!-- HTMX Core -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- HTMX SSE Extension -->
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+
+    <!-- HTMX JSON Encode Extension -->
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
+</head>
+<body class="bg-dark-bg text-gray-100 min-h-screen overflow-hidden">
+    <div class="grid grid-cols-[auto_1fr_auto] min-h-screen max-h-screen">
+        <!-- Left Sidebar -->
+        {% include "partials/sidebar" %}
+
+        <!-- Main Content Area -->
+        <div class="flex flex-col min-h-screen max-h-screen overflow-hidden">
+            <!-- Main Content -->
+            <main class="flex-1 p-6 overflow-y-auto">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+
+        <!-- Right Sidebar (Quick Actions) -->
+        {% include "partials/quick_actions" %}
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-4 z-50 space-y-2"></div>
+
+    <!-- Toast Notification System -->
+    <script>
+        // Toast queue management
+        let toastQueue = [];
+        let toastIdCounter = 0;
+
+        // Position toast container dynamically to avoid quick actions sidebar
+        function positionToastContainer() {
+            const container = document.getElementById('toast-container');
+            const quickActions = document.querySelector('aside.w-72.bg-dark-surface.border-l');
+
+            if (container && quickActions) {
+                const sidebarWidth = quickActions.offsetWidth;
+                const spacing = 16; // 1rem spacing from sidebar
+                container.style.right = (sidebarWidth + spacing) + 'px';
+            }
+        }
+
+        // Position on load and resize
+        window.addEventListener('DOMContentLoaded', positionToastContainer);
+        window.addEventListener('resize', positionToastContainer);
+
+        // Remove toast from queue and DOM
+        function removeToast(toastId) {
+            const index = toastQueue.findIndex(t => t.id === toastId);
+            if (index !== -1) {
+                const toastData = toastQueue[index];
+                if (toastData.element && toastData.element.parentNode) {
+                    toastData.element.style.opacity = '0';
+                    toastData.element.style.transform = 'translateX(100%)';
+                    setTimeout(() => {
+                        if (toastData.element.parentNode) {
+                            toastData.element.remove();
+                        }
+                    }, 300);
+                }
+                toastQueue.splice(index, 1);
+            }
+        }
+
+        // Process toast queue in order
+        function processToastQueue() {
+            const now = Date.now();
+
+            // Find toasts that should be removed (oldest first)
+            toastQueue.forEach(toast => {
+                if (toast.duration > 0 && now >= toast.removeAt && !toast.removing) {
+                    toast.removing = true;
+                    removeToast(toast.id);
+                }
+            });
+        }
+
+        // Check queue every 100ms
+        setInterval(processToastQueue, 100);
+
+        // Close all toasts of a specific type (useful for closing "in progress" toasts)
+        function closeToastsByType(type) {
+            const toastsToRemove = toastQueue.filter(t => {
+                // Check if the toast has the matching type class
+                return t.element && t.element.classList.contains(`toast-${type}`);
+            });
+            toastsToRemove.forEach(toast => removeToast(toast.id));
+        }
+
+        // Close all toasts with a specific message
+        function closeToastsByMessage(message) {
+            const toastsToRemove = toastQueue.filter(t => {
+                return t.element && t.element.textContent.includes(message);
+            });
+            toastsToRemove.forEach(toast => removeToast(toast.id));
+        }
+
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const toastId = ++toastIdCounter;
+
+            // Determine colors based on type
+            let toastClass, textColor, icon;
+            switch(type) {
+                case 'success':
+                    toastClass = 'toast-success';
+                    textColor = 'text-green-400';
+                    icon = `<svg class="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>`;
+                    break;
+                case 'error':
+                    toastClass = 'toast-error';
+                    textColor = 'text-red-400';
+                    icon = `<svg class="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                    </svg>`;
+                    break;
+                case 'info':
+                default:
+                    toastClass = 'toast-info';
+                    textColor = 'text-blue-400';
+                    icon = `<svg class="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                    </svg>`;
+            }
+
+            toast.className = toastClass;
+            toast.innerHTML = `
+                <div class="flex items-start">
+                    ${icon}
+                    <div class="flex-1 ${textColor}">
+                        <p class="text-sm font-medium">${message}</p>
+                    </div>
+                    <button onclick="removeToast(${toastId})" class="${textColor} hover:opacity-75 ml-2">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
+            // Add with slide-in animation
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100%)';
+            container.appendChild(toast);
+
+            // Trigger animation
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateX(0)';
+            }, 10);
+
+            // Calculate when this toast should be removed
+            // Get the latest removal time from existing toasts to maintain order
+            let removeAt = Date.now() + duration;
+            if (toastQueue.length > 0 && duration > 0) {
+                const lastToast = toastQueue[toastQueue.length - 1];
+                if (lastToast.duration > 0 && lastToast.removeAt > Date.now()) {
+                    // This toast should be removed after the previous one
+                    removeAt = lastToast.removeAt + 500; // 500ms gap between removals
+                }
+            }
+
+            // Add to queue
+            toastQueue.push({
+                id: toastId,
+                element: toast,
+                duration: duration,
+                removeAt: removeAt,
+                removing: false
+            });
+        }
+    </script>
+</body>
+</html>

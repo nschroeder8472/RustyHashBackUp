@@ -1,0 +1,295 @@
+{% extends "base" %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">Logs</h1>
+        <div class="flex space-x-3">
+            <button class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                    onclick="refreshLogs()">
+                <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+            </button>
+            <button class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg transition-colors"
+                    hx-post="/api/logs/clear"
+                    hx-confirm="Are you sure you want to clear all logs?">
+                <svg class="inline w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear Logs
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card-sm">
+        <div class="grid grid-cols-4 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Log Level</label>
+                <select class="input-field-sm w-full"
+                        id="log-level-filter"
+                        onchange="filterLogs()">
+                    <option value="all">All Levels</option>
+                    <option value="error">Error</option>
+                    <option value="warn">Warning</option>
+                    <option value="info" selected>Info</option>
+                    <option value="debug">Debug</option>
+                    <option value="trace">Trace</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Time Range</label>
+                <select class="input-field-sm w-full"
+                        id="time-range-filter"
+                        onchange="filterLogs()">
+                    <option value="1h">Last Hour</option>
+                    <option value="6h">Last 6 Hours</option>
+                    <option value="24h" selected>Last 24 Hours</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="all">All Time</option>
+                </select>
+            </div>
+            <div class="col-span-2">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Search</label>
+                <input type="text"
+                       class="input-field-sm w-full"
+                       placeholder="Search logs..."
+                       id="log-search"
+                       oninput="filterLogs()">
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Statistics -->
+    <div class="grid grid-cols-5 gap-4"
+         hx-get="/api/logs/stats"
+         hx-trigger="load, every 30s"
+         hx-swap="innerHTML">
+        <!-- Loading placeholders -->
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-l-4 border-l-gray-500 border-dark-border rounded-lg p-4">
+            <div class="text-center text-gray-500 py-2">
+                <p class="text-xs">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Entries -->
+    <div class="card p-0">
+        <div class="p-4 border-b border-dark-border">
+            <h2 class="section-heading mb-0">Log Entries</h2>
+        </div>
+
+        <div class="divide-y divide-dark-border max-h-[600px] overflow-y-auto"
+             id="log-entries"
+             hx-get="/api/logs"
+             hx-trigger="load, every 10s"
+             hx-swap="innerHTML">
+
+            <!-- Mock log entries - will be replaced by HTMX API call -->
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="error" data-time="2025-11-28T14:23:15">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs font-medium rounded uppercase">Error</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Failed to copy file: /source/large_file.dat</p>
+                            <span class="text-xs text-gray-500">14:23:15</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Error: Permission denied (os error 13)</p>
+                        <p class="text-xs text-gray-600 mt-1">backup.rs:145</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="warn" data-time="2025-11-28T14:22:03">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded uppercase">Warn</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Skipped 3 files due to size limit</p>
+                            <span class="text-xs text-gray-500">14:22:03</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Files exceed max_mebibytes_for_hash setting (1 MiB)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="info" data-time="2025-11-28T14:20:45">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded uppercase">Info</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Backup completed successfully</p>
+                            <span class="text-xs text-gray-500">14:20:45</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">2,547 files backed up to 3 destinations in 4m 32s</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="info" data-time="2025-11-28T14:16:12">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded uppercase">Info</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Starting scheduled backup</p>
+                            <span class="text-xs text-gray-500">14:16:12</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Next backup scheduled for: 2025-11-28 20:00:00 UTC</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="debug" data-time="2025-11-28T14:16:11">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs font-medium rounded uppercase">Debug</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Loaded config from config.json</p>
+                            <span class="text-xs text-gray-500">14:16:11</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Sources: 5, Destinations: 3, Max threads: 8</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="info" data-time="2025-11-28T10:15:33">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded uppercase">Info</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Database optimization completed</p>
+                            <span class="text-xs text-gray-500">10:15:33</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">VACUUM operation reduced database size by 15% (45.2 MB)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="info" data-time="2025-11-28T08:20:17">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded uppercase">Info</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Backup completed successfully</p>
+                            <span class="text-xs text-gray-500">08:20:17</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">2,544 files backed up to 3 destinations in 4m 28s</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 hover:bg-dark-bg transition-colors log-entry" data-level="warn" data-time="2025-11-28T08:18:42">
+                <div class="flex items-start space-x-3">
+                    <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded uppercase">Warn</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm text-gray-300 font-mono">Destination disk space running low</p>
+                            <span class="text-xs text-gray-500">08:18:42</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">/backup/dest3 has only 75 GB remaining (15% free)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="p-4 border-t border-dark-border flex items-center justify-between">
+            <p class="text-sm text-gray-400">Showing <span class="text-white">1-50</span> of <span class="text-white">2,385</span> entries</p>
+            <div class="flex space-x-2">
+                <button class="px-3 py-1 bg-dark-bg border border-dark-border rounded text-sm text-gray-400 hover:text-white hover:border-purple-500 transition-colors">
+                    Previous
+                </button>
+                <button class="px-3 py-1 bg-purple-600 border border-purple-600 rounded text-sm text-white">
+                    1
+                </button>
+                <button class="px-3 py-1 bg-dark-bg border border-dark-border rounded text-sm text-gray-400 hover:text-white hover:border-purple-500 transition-colors">
+                    2
+                </button>
+                <button class="px-3 py-1 bg-dark-bg border border-dark-border rounded text-sm text-gray-400 hover:text-white hover:border-purple-500 transition-colors">
+                    3
+                </button>
+                <button class="px-3 py-1 bg-dark-bg border border-dark-border rounded text-sm text-gray-400 hover:text-white hover:border-purple-500 transition-colors">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function refreshLogs() {
+        htmx.trigger('#log-entries', 'load');
+    }
+
+    function filterLogs() {
+        // Build API URL with query parameters
+        const level = document.getElementById('log-level-filter').value;
+        const timeRange = document.getElementById('time-range-filter').value;
+        const search = document.getElementById('log-search').value;
+
+        // Calculate 'since' timestamp based on time range
+        let since = null;
+        const now = Math.floor(Date.now() / 1000); // Current Unix timestamp in seconds
+
+        switch(timeRange) {
+            case '1h':
+                since = now - (60 * 60);
+                break;
+            case '6h':
+                since = now - (6 * 60 * 60);
+                break;
+            case '24h':
+                since = now - (24 * 60 * 60);
+                break;
+            case '7d':
+                since = now - (7 * 24 * 60 * 60);
+                break;
+            case 'all':
+            default:
+                since = null;
+                break;
+        }
+
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (level !== 'all') {
+            params.append('level', level.toUpperCase());
+        }
+        if (since !== null) {
+            params.append('since', since);
+        }
+        if (search) {
+            params.append('search', search);
+        }
+
+        // Make HTMX request to the API
+        const url = '/api/logs?' + params.toString();
+        htmx.ajax('GET', url, {
+            target: '#log-entries',
+            swap: 'innerHTML'
+        });
+    }
+</script>
+{% endblock %}

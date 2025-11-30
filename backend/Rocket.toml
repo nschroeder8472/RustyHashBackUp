@@ -1,0 +1,8 @@
+[default]
+template_dir = "../web/templates"
+
+[debug]
+template_dir = "../web/templates"
+
+[release]
+template_dir = "../web/templates"

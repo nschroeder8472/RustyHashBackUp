@@ -1,0 +1,29 @@
+{
+  "name": "rustyhashbackup",
+  "version": "1.0.0",
+  "description": "A fast, reliable hash-based file backup utility written in Rust. Uses BLAKE2b512 hashing to detect file changes and maintains backup metadata in SQLite for efficient incremental backups.",
+  "main": "index.js",
+  "directories": {
+    "example": "example"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "tailwindcss -i ./static/css/tailwind.input.css -o ./static/css/tailwind.output.css --minify",
+    "watch:css": "tailwindcss -i ./static/css/tailwind.input.css -o ./static/css/tailwind.output.css --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nschroeder8472/RustyHashBackup.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nschroeder8472/RustyHashBackup/issues"
+  },
+  "homepage": "https://github.com/nschroeder8472/RustyHashBackup#readme",
+  "devDependencies": {
+    "tailwindcss": "^3.4.18"
+  }
+}
