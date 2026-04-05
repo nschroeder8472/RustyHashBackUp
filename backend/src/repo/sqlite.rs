@@ -164,8 +164,8 @@ pub fn select_source(source_file: &str, source_path: &str) -> rusqlite::Result<O
                 file_name: row.get(1)?,
                 file_path: row.get(2)?,
                 hash: row.get(3)?,
-                file_size: row.get(4)?,
-                last_modified: Duration::from_secs(row.get(5)?),
+                file_size: row.get::<_, i64>(4)? as u64,
+                last_modified: Duration::from_secs(row.get::<_, i64>(5)? as u64),
             })
         })
         .optional()
@@ -188,7 +188,7 @@ pub fn select_backed_up_file(
             Ok(BackedUpFile {
                 file_name: row.get(0)?,
                 file_path: row.get(1)?,
-                last_modified: Duration::from_secs(row.get(2)?),
+                last_modified: Duration::from_secs(row.get::<_, i64>(2)? as u64),
                 hash: row.get(3)?,
             })
         })
@@ -214,8 +214,8 @@ pub fn insert_source_row(source_row: &SourceRow) -> Result<i32> {
             &source_row.file_name,
             &source_row.file_path,
             &source_row.hash,
-            &source_row.file_size,
-            source_row.last_modified.as_secs(),
+            source_row.file_size as i64,
+            source_row.last_modified.as_secs() as i64,
         ),
         |row| row.get(0),
     )
@@ -230,7 +230,7 @@ pub fn update_source_last_modified(row_id: i32, last_modified: &Duration) -> Res
     let conn = get_connection()?;
     conn.execute(
         "UPDATE Source_Files SET Last_Modified=?1 WHERE ID=?2",
-        (last_modified.as_secs(), row_id),
+        (last_modified.as_secs() as i64, row_id),
     )
     .map_err(|cause| BackupError::DatabaseUpdate {
         table: "Source_Files".to_string(),
@@ -249,7 +249,7 @@ pub fn update_source_row(
     let conn = get_connection()?;
     conn.execute(
         "UPDATE Source_Files SET Hash=?1, File_Size=?2, Last_Modified=?3 WHERE ID=?4",
-        (hash, file_size, last_modified.as_secs(), row_id),
+        (hash, *file_size as i64, last_modified.as_secs() as i64, row_id),
     )
     .map_err(|cause| BackupError::DatabaseUpdate {
         table: "Source_Files".to_string(),
@@ -271,7 +271,7 @@ pub fn insert_backup_row(backup_row: BackupRow) -> Result<()> {
             backup_row.source_id,
             &backup_row.file_name,
             &backup_row.file_path,
-            backup_row.last_modified.as_secs(),
+            backup_row.last_modified.as_secs() as i64,
         ),
     )
     .map_err(|cause| BackupError::DatabaseInsert {
@@ -396,6 +396,39 @@ pub fn delete_all_logs() -> Result<usize> {
     Ok(deleted)
 }
 
+/// Count logs grouped by level (more efficient than multiple query_logs calls)
+pub fn count_logs_by_level() -> Result<std::collections::HashMap<String, usize>> {
+    use std::collections::HashMap;
+
+    let conn = get_connection()?;
+    let mut stmt = conn
+        .prepare("SELECT Level, COUNT(*) FROM Logs GROUP BY Level")
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "count logs by level".to_string(),
+            cause,
+        })?;
+
+    let mut counts = HashMap::new();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        })
+        .map_err(|cause| BackupError::DatabaseQuery {
+            operation: "count logs by level".to_string(),
+            cause,
+        })?;
+
+    for row in rows {
+        let (level, count) = row.map_err(|cause| BackupError::DatabaseQuery {
+            operation: "collect log counts".to_string(),
+            cause,
+        })?;
+        counts.insert(level, count);
+    }
+
+    Ok(counts)
+}
+
 // ============================================================================
 // Storage Overview Functions
 // ============================================================================
@@ -409,7 +442,7 @@ pub fn get_storage_overview(destinations: &[String]) -> Result<StorageStats> {
         .query_row(
             "SELECT COUNT(*), COALESCE(SUM(File_Size), 0) FROM Source_Files",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
         )
         .map_err(|cause| BackupError::DatabaseQuery {
             operation: "get total source stats".to_string(),
@@ -427,7 +460,7 @@ pub fn get_storage_overview(destinations: &[String]) -> Result<StorageStats> {
                  INNER JOIN Source_Files sf ON bf.Source_ID = sf.ID
                  WHERE bf.File_Path LIKE ?1 || '%'",
                 [dest],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
             )
             .map_err(|cause| BackupError::DatabaseQuery {
                 operation: format!("get storage stats for {}", dest),
@@ -467,7 +500,9 @@ pub fn get_total_source_files() -> Result<u64> {
     let conn = get_connection()?;
 
     let count: u64 = conn
-        .query_row("SELECT COUNT(*) FROM Source_Files", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM Source_Files", [], |row| {
+            Ok(row.get::<_, i64>(0)? as u64)
+        })
         .map_err(|cause| BackupError::DatabaseQuery {
             operation: "get_total_source_files".to_string(),
             cause,

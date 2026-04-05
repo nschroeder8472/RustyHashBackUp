@@ -46,7 +46,7 @@
 {{ metrics::card(
     title="Source Directories",
     value=source_directories.count,
-    subtitle=source_directories.size,
+    subtitle=source_directories.subtitle,
     icon=metrics::icon_folder(),
     color="yellow"
 ) }}

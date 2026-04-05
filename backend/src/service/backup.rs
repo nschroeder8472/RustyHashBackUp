@@ -667,17 +667,29 @@ fn get_possible_backups(
     shared_path: &PathBuf,
     destinations: &[String],
 ) -> Result<Vec<PathBuf>> {
-    let relative_path = if let Some(parent) = shared_path.parent() {
-        let parent_str = parent.to_str().ok_or_else(|| {
-            BackupError::DirectoryRead(format!("Invalid path encoding for {:?}", parent))
-        })?;
-        file_path.trim_start_matches(parent_str)
+    // Use Path::strip_prefix for proper path handling across platforms
+    let file_path_buf = Path::new(file_path);
+
+    let relative_path_buf = if let Some(parent) = shared_path.parent() {
+        file_path_buf.strip_prefix(parent).map_err(|_| {
+            BackupError::DirectoryRead(format!(
+                "Failed to calculate relative path: file '{}' is not under parent '{:?}'",
+                file_path, parent
+            ))
+        })?
     } else {
-        let shared_str = shared_path.to_str().ok_or_else(|| {
-            BackupError::DirectoryRead(format!("Invalid path encoding for {:?}", shared_path))
-        })?;
-        file_path.trim_start_matches(shared_str)
+        file_path_buf.strip_prefix(shared_path).map_err(|_| {
+            BackupError::DirectoryRead(format!(
+                "Failed to calculate relative path: file '{}' is not under '{:?}'",
+                file_path, shared_path
+            ))
+        })?
     };
+
+    // Convert to string for validation
+    let relative_path = relative_path_buf.to_str().ok_or_else(|| {
+        BackupError::DirectoryRead(format!("Invalid path encoding for {:?}", relative_path_buf))
+    })?;
 
     // Security: Check for path traversal attempts
     if relative_path.contains("..") {
@@ -698,9 +710,14 @@ fn get_possible_backups(
     let mut possible_backup_paths = Vec::new();
     for destination in destinations {
         let dest_path = Path::new(destination);
-        let backup_path = dest_path
-            .join(relative_path.trim_start_matches(MAIN_SEPARATOR))
-            .join(file_name);
+
+        // Join destination with relative path (which is already properly relative)
+        // If relative_path somehow starts with a separator, join() handles it correctly
+        let backup_path = if let Some(parent_rel) = relative_path_buf.parent() {
+            dest_path.join(parent_rel).join(file_name)
+        } else {
+            dest_path.join(file_name)
+        };
 
         // Security: Verify the constructed path is actually within the destination
         // Canonicalize both paths to resolve any symbolic links or relative components

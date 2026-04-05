@@ -174,24 +174,24 @@
                 <input type="text"
                        name="schedule"
                        class="input-field font-mono"
-                       placeholder="0 */6 * * * (every 6 hours)"
+                       placeholder="0 0 */6 * * * (every 6 hours)"
                        value="">
-                <p class="mt-1 text-xs text-gray-500">Cron expression for scheduling backups (leave empty to disable)</p>
+                <p class="mt-1 text-xs text-gray-500">6-field cron: sec min hour day month day_of_week (leave empty to disable)</p>
                 <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <div class="code-block">
-                        <code class="text-purple-400">0 */6 * * *</code>
+                        <code class="text-purple-400">0 0 */6 * * *</code>
                         <span class="text-gray-500"> - Every 6 hours</span>
                     </div>
                     <div class="code-block">
-                        <code class="text-purple-400">0 0 * * *</code>
+                        <code class="text-purple-400">0 0 0 * * *</code>
                         <span class="text-gray-500"> - Daily at midnight</span>
                     </div>
                     <div class="code-block">
-                        <code class="text-purple-400">0 2 * * 0</code>
+                        <code class="text-purple-400">0 0 2 * * 0</code>
                         <span class="text-gray-500"> - Weekly on Sunday at 2 AM</span>
                     </div>
                     <div class="code-block">
-                        <code class="text-purple-400">*/30 * * * *</code>
+                        <code class="text-purple-400">0 */30 * * * *</code>
                         <span class="text-gray-500"> - Every 30 minutes</span>
                     </div>
                 </div>
@@ -344,74 +344,29 @@
         document.querySelector('input[name="skip_source_hash_check_if_newer"]').checked = config.skip_source_hash_check_if_newer || false;
         document.querySelector('input[name="force_overwrite_backup"]').checked = config.force_overwrite_backup || false;
         document.querySelector('input[name="overwrite_backup_if_existing_is_newer"]').checked = config.overwrite_backup_if_existing_is_newer || false;
+        document.querySelector('input[name="run_on_startup"]').checked = config.run_on_startup || false;
         document.querySelector('input[name="schedule"]').value = config.schedule || '';
 
         // Clear existing sources (keep container)
         const sourcesContainer = document.getElementById('backup-sources');
-        sourcesContainer.innerHTML = '';
+        sourcesContainer.innerHTML = '';  // Clearing is safe
 
-        // Populate sources
+        // Populate sources using safe DOM APIs
         if (config.backup_sources && config.backup_sources.length > 0) {
             config.backup_sources.forEach((source, index) => {
-                if (index === 0) {
-                    // Add first source
-                    sourcesContainer.innerHTML = `
-                        <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
-                            <div class="flex items-start justify-between">
-                                <div class="flex-1 space-y-3">
-                                    <input type="text" name="source_path_0" class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/source" value="${source.parent_directory || ''}">
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <input type="number" name="source_max_depth_0" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Max depth (optional)" value="${source.max_depth != null ? source.max_depth : ''}">
-                                        <input type="text" name="source_skip_dirs_0" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Skip dirs (comma separated)" value="${source.skip_dirs ? source.skip_dirs.join(',') : ''}">
-                                    </div>
-                                </div>
-                                <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    sourceCount = 1;
-                } else {
-                    // Add additional sources
-                    const sourceHtml = `
-                        <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
-                            <div class="flex items-start justify-between">
-                                <div class="flex-1 space-y-3">
-                                    <input type="text" name="source_path_${index}" class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/source" value="${source.parent_directory || ''}">
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <input type="number" name="source_max_depth_${index}" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Max depth (optional)" value="${source.max_depth != null ? source.max_depth : ''}">
-                                        <input type="text" name="source_skip_dirs_${index}" class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Skip dirs (comma separated)" value="${source.skip_dirs ? source.skip_dirs.join(',') : ''}">
-                                    </div>
-                                </div>
-                                <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    sourcesContainer.insertAdjacentHTML('beforeend', sourceHtml);
-                    sourceCount = index + 1;
-                }
+                sourcesContainer.appendChild(createSourceEntry(index, source));
+                sourceCount = index + 1;
             });
         }
 
         // Clear existing destinations
         const destContainer = document.getElementById('backup-destinations');
-        destContainer.innerHTML = '';
+        destContainer.innerHTML = '';  // Clearing is safe
 
-        // Populate destinations
+        // Populate destinations using safe DOM APIs
         if (config.backup_destinations && config.backup_destinations.length > 0) {
             config.backup_destinations.forEach((dest, index) => {
-                const destHtml = `
-                    <div class="flex items-center space-x-3 destination-entry">
-                        <input type="text" name="destination_${index}" class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="/path/to/destination" value="${dest || ''}">
-                        <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                    </div>
-                `;
-                destContainer.insertAdjacentHTML('beforeend', destHtml);
+                destContainer.appendChild(createDestinationEntry(index, dest));
                 destCount = index + 1;
             });
         }
@@ -427,38 +382,34 @@
             return;
         }
 
-        // Collect form data and build config JSON
+        // Collect form data
         const form = document.getElementById('config-form');
         const formData = new FormData(form);
 
-        // Collect all sources dynamically
+        // Collect sources by iterating over DOM elements instead of index counters
         const sources = [];
-        let sourceIndex = 0;
-        while (document.querySelector(`input[name="source_path_${sourceIndex}"]`)) {
-            const path = formData.get(`source_path_${sourceIndex}`).trim().replace(/\\/g, '/') || '';
-            if (path) {  // Only add if path is not empty
-                const source = {
-                    parent_directory: path
-                };
+        document.querySelectorAll('#backup-sources .source-entry').forEach(entry => {
+            const pathInput = entry.querySelector('input[name^="source_path_"]');
+            const depthInput = entry.querySelector('input[name^="source_max_depth_"]');
+            const skipInput = entry.querySelector('input[name^="source_skip_dirs_"]');
 
-                // Only include max_depth if it's specified (not empty)
-                const maxDepthValue = formData.get(`source_max_depth_${sourceIndex}`);
-                if (maxDepthValue && maxDepthValue.trim() !== '') {
-                    source.max_depth = parseInt(maxDepthValue);
+            const path = pathInput ? pathInput.value.trim().replace(/\\/g, '/') : '';
+            if (path) {
+                const source = { parent_directory: path };
+
+                if (depthInput && depthInput.value.trim() !== '') {
+                    source.max_depth = parseInt(depthInput.value);
                 }
 
-                // Only include skip_dirs if specified
-                const skipDirsValue = formData.get(`source_skip_dirs_${sourceIndex}`);
-                if (skipDirsValue && skipDirsValue.trim() !== '') {
-                    source.skip_dirs = skipDirsValue.split(',').map(s => s.trim().replace(/\\/g, '/')).filter(s => s);
+                if (skipInput && skipInput.value.trim() !== '') {
+                    source.skip_dirs = skipInput.value.split(',').map(s => s.trim().replace(/\\/g, '/')).filter(s => s);
                 } else {
                     source.skip_dirs = [];
                 }
 
                 sources.push(source);
             }
-            sourceIndex++;
-        }
+        });
 
         // Validate: At least one source is required
         if (sources.length === 0) {
@@ -466,16 +417,12 @@
             return;
         }
 
-        // Collect all destinations dynamically
+        // Collect destinations by iterating over DOM elements
         const destinations = [];
-        let destIndex = 0;
-        while (document.querySelector(`input[name="destination_${destIndex}"]`)) {
-            const dest = formData.get(`destination_${destIndex}`).trim().replace(/\\/g, '/') || '';
-            if (dest) {  // Only add if destination is not empty
-                destinations.push(dest);
-            }
-            destIndex++;
-        }
+        document.querySelectorAll('#backup-destinations .destination-entry input[name^="destination_"]').forEach(input => {
+            const dest = input.value.trim().replace(/\\/g, '/');
+            if (dest) destinations.push(dest);
+        });
 
         // Validate: At least one destination is required
         if (destinations.length === 0) {
@@ -488,9 +435,10 @@
             database_file: formData.get('database_file').trim().replace(/\\/g, '/') || '',
             max_threads: parseInt(formData.get('max_threads')) || 2,
             max_mebibytes_for_hash: parseInt(formData.get('max_mebibytes_for_hash')) || 1,
-            skip_source_hash_check_if_newer: formData.get('skip_source_hash_check_if_newer') === 'on',
-            force_overwrite_backup: formData.get('force_overwrite_backup') === 'on',
-            overwrite_backup_if_existing_is_newer: formData.get('overwrite_backup_if_existing_is_newer') === 'on',
+            skip_source_hash_check_if_newer: document.querySelector('input[name="skip_source_hash_check_if_newer"]').checked,
+            force_overwrite_backup: document.querySelector('input[name="force_overwrite_backup"]').checked,
+            overwrite_backup_if_existing_is_newer: document.querySelector('input[name="overwrite_backup_if_existing_is_newer"]').checked,
+            run_on_startup: document.querySelector('input[name="run_on_startup"]').checked,
             schedule: formData.get('schedule') || null,
             backup_sources: sources,
             backup_destinations: destinations
@@ -528,38 +476,66 @@
         });
     }
 
+    // Helper function to create source entry using DOM APIs (prevents XSS)
+    function createSourceEntry(index, source = {}) {
+        const entry = document.createElement('div');
+        entry.className = 'p-4 bg-dark-bg border border-dark-border rounded-lg source-entry';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-start justify-between';
+
+        const fields = document.createElement('div');
+        fields.className = 'flex-1 space-y-3';
+
+        // Path input
+        const pathInput = document.createElement('input');
+        pathInput.type = 'text';
+        pathInput.name = `source_path_${index}`;
+        pathInput.className = 'w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500';
+        pathInput.placeholder = '/path/to/source';
+        pathInput.value = source.parent_directory || '';  // .value is safe
+        fields.appendChild(pathInput);
+
+        // Grid for depth + skip dirs
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-2 gap-3';
+
+        const depthInput = document.createElement('input');
+        depthInput.type = 'number';
+        depthInput.name = `source_max_depth_${index}`;
+        depthInput.className = 'px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500';
+        depthInput.placeholder = 'Max depth (optional)';
+        depthInput.value = source.max_depth != null ? source.max_depth : '';
+        grid.appendChild(depthInput);
+
+        const skipInput = document.createElement('input');
+        skipInput.type = 'text';
+        skipInput.name = `source_skip_dirs_${index}`;
+        skipInput.className = 'px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500';
+        skipInput.placeholder = 'Skip dirs (comma separated)';
+        skipInput.value = source.skip_dirs ? source.skip_dirs.join(',') : '';
+        grid.appendChild(skipInput);
+
+        fields.appendChild(grid);
+        wrapper.appendChild(fields);
+
+        // Delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'ml-3 text-red-400 hover:text-red-300';
+        deleteBtn.onclick = function() { removeSource(this); };
+        deleteBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>';
+        wrapper.appendChild(deleteBtn);
+
+        entry.appendChild(wrapper);
+        return entry;
+    }
+
     // Add source directory
     let sourceCount = 1;
     function addSource() {
         const container = document.getElementById('backup-sources');
-        const sourceHtml = `
-            <div class="p-4 bg-dark-bg border border-dark-border rounded-lg source-entry">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1 space-y-3">
-                        <input type="text"
-                               name="source_path_${sourceCount}"
-                               class="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                               placeholder="/path/to/source">
-                        <div class="grid grid-cols-2 gap-3">
-                            <input type="number"
-                                   name="source_max_depth_${sourceCount}"
-                                   class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                   placeholder="Max depth (optional)">
-                            <input type="text"
-                                   name="source_skip_dirs_${sourceCount}"
-                                   class="px-3 py-2 bg-dark-surface border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                   placeholder="Skip dirs (comma separated)">
-                        </div>
-                    </div>
-                    <button type="button" class="ml-3 text-red-400 hover:text-red-300" onclick="removeSource(this)">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', sourceHtml);
+        container.appendChild(createSourceEntry(sourceCount));
         sourceCount++;
     }
 
@@ -567,24 +543,34 @@
         button.closest('.source-entry').remove();
     }
 
+    // Helper function to create destination entry using DOM APIs (prevents XSS)
+    function createDestinationEntry(index, dest = '') {
+        const entry = document.createElement('div');
+        entry.className = 'flex items-center space-x-3 destination-entry';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.name = `destination_${index}`;
+        input.className = 'flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500';
+        input.placeholder = '/path/to/destination';
+        input.value = dest || '';  // .value is safe
+        entry.appendChild(input);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'text-red-400 hover:text-red-300';
+        deleteBtn.onclick = function() { removeDestination(this); };
+        deleteBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>';
+        entry.appendChild(deleteBtn);
+
+        return entry;
+    }
+
     // Add destination
     let destCount = 1;
     function addDestination() {
         const container = document.getElementById('backup-destinations');
-        const destHtml = `
-            <div class="flex items-center space-x-3 destination-entry">
-                <input type="text"
-                       name="destination_${destCount}"
-                       class="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                       placeholder="/path/to/destination">
-                <button type="button" class="text-red-400 hover:text-red-300" onclick="removeDestination(this)">
-                    <svg class="w-5 h-5" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                </button>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', destHtml);
+        container.appendChild(createDestinationEntry(destCount));
         destCount++;
     }
 

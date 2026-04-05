@@ -267,7 +267,7 @@ fn validate_schedule(config: &Config) -> Result<()> {
             }
             Err(e) => {
                 return Err(BackupError::DirectoryRead(format!(
-                    "Invalid cron expression in schedule: {}\nError: {}\nExample: '0 2 * * *' for daily at 2am",
+                    "Invalid cron expression in schedule: {}\nError: {}\nExample: '0 0 2 * * *' for daily at 2am (6-field format: second minute hour day month weekday)",
                     schedule_str, e
                 )));
             }

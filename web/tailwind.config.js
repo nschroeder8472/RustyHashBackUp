@@ -5,6 +5,12 @@ module.exports = {
     "./static/js/**/*.js"
   ],
   darkMode: 'class',
+  safelist: [
+    // Colors used in metric_card.html.tera and other dynamic templates
+    {
+      pattern: /^(bg|border|text|hover:border)-(blue|green|purple|indigo|yellow|teal|red|gray)-(400|500|600)(\/10|\/50)?$/,
+    },
+  ],
   theme: {
     extend: {
       colors: {

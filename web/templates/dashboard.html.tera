@@ -16,64 +16,53 @@
          hx-trigger="load, every 30s"
          hx-swap="innerHTML">
 
-        {# Row 1 - Status metrics #}
-        {{ metrics::card(
-            title="Last Backup",
-            value="2 hours ago",
-            subtitle="Completed successfully",
-            icon=metrics::icon_clock(),
-            color="blue"
-        ) }}
-
-        {{ metrics::card(
-            title="Continuous Backup",
-            value="Active",
-            subtitle="Running since startup",
-            icon=metrics::icon_check_circle(),
-            color="green"
-        ) }}
-
-        {{ metrics::card(
-            title="Current Operation",
-            value="Idle",
-            subtitle="Waiting for next scheduled run",
-            icon=metrics::icon_chart_bar(),
-            color="purple",
-            show_progress=false
-        ) }}
-
-        {# Row 2 - Statistics #}
-        {{ metrics::card(
-            title="Total Files Backed Up",
-            value="2,547",
-            subtitle="Across 3 destinations",
-            icon=metrics::icon_database(),
-            color="indigo"
-        ) }}
-
-        {{ metrics::card(
-            title="Source Directories",
-            value="5",
-            subtitle="12.4 GB monitored",
-            icon=metrics::icon_folder(),
-            color="yellow"
-        ) }}
-
-        {{ metrics::card(
-            title="Backup Destinations",
-            value="3",
-            subtitle="All destinations healthy",
-            icon=metrics::icon_server(),
-            color="teal"
-        ) }}
+        <!-- Loading skeleton cards -->
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6">
+            <div class="animate-pulse">
+                <div class="h-4 bg-gray-700 rounded w-24 mb-3"></div>
+                <div class="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+                <div class="h-3 bg-gray-700 rounded w-32"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Backup Progress (shown when backup is running) -->
-    <div class="hidden" id="backup-progress-section"
-         hx-get="/api/progress"
-         hx-ext="sse"
-         sse-connect="/api/events"
-         sse-swap="message">
+    <div class="hidden" id="backup-progress-section">
         <div class="card">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="section-heading mb-0">Backup Progress</h2>
@@ -120,11 +109,32 @@
 </div>
 
 <script>
+    // Track actual last update time
+    let lastUpdateTime = Date.now();
+
+    // Listen for HTMX content swap to detect actual updates
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.detail.target.closest('[hx-get="/api/dashboard/metrics"]')) {
+            lastUpdateTime = Date.now();
+            document.getElementById('last-update').textContent = 'just now';
+        }
+    });
+
     // Update "last updated" timestamp
     function updateTimestamp() {
-        document.getElementById('last-update').textContent = 'just now';
+        const elapsed = Math.floor((Date.now() - lastUpdateTime) / 1000);
+        const el = document.getElementById('last-update');
+
+        if (elapsed < 10) {
+            el.textContent = 'just now';
+        } else if (elapsed < 60) {
+            el.textContent = `${elapsed}s ago`;
+        } else {
+            el.textContent = `${Math.floor(elapsed / 60)}m ago`;
+        }
     }
-    setInterval(updateTimestamp, 30000);
+
+    setInterval(updateTimestamp, 5000);
 
     // Show immediate feedback when backup is started
     function showBackupStarted(button, isDryRun) {
@@ -148,5 +158,67 @@
             }
         }
     });
+
+    // SSE connection for real-time progress
+    let eventSource = null;
+
+    function connectSSE() {
+        if (eventSource) eventSource.close();
+
+        eventSource = new EventSource('/api/events');
+
+        eventSource.onmessage = function(event) {
+            if (event.data === 'heartbeat') return;
+
+            try {
+                const data = JSON.parse(event.data);
+                updateProgressUI(data);
+            } catch (e) {
+                console.error('Failed to parse SSE event:', e);
+            }
+        };
+
+        eventSource.onerror = function() {
+            // Reconnect after delay
+            setTimeout(connectSSE, 5000);
+        };
+    }
+
+    function updateProgressUI(data) {
+        const section = document.getElementById('backup-progress-section');
+
+        if (data.status === 'running') {
+            section.classList.remove('hidden');
+
+            if (data.progress) {
+                document.getElementById('progress-phase').textContent = `Phase ${data.progress.phase}/3`;
+                document.getElementById('progress-description').textContent = data.progress.phase_description;
+                document.getElementById('progress-percentage').textContent = `${Math.round(data.progress.percentage)}%`;
+                document.getElementById('progress-bar').style.width = `${data.progress.percentage}%`;
+                document.getElementById('progress-files').textContent =
+                    `${data.progress.files_processed} / ${data.progress.total_files} files`;
+
+                if (data.progress.bytes_processed !== null && data.progress.total_bytes !== null) {
+                    const processedMB = (data.progress.bytes_processed / 1024 / 1024).toFixed(1);
+                    const totalMB = (data.progress.total_bytes / 1024 / 1024).toFixed(1);
+                    document.getElementById('progress-bytes').textContent = `${processedMB} MB / ${totalMB} MB`;
+                }
+
+                if (data.progress.current_file) {
+                    document.getElementById('progress-current-file').textContent = data.progress.current_file;
+                }
+            }
+        } else {
+            section.classList.add('hidden');
+        }
+
+        if (data.message) {
+            const type = data.status === 'failed' ? 'error' : 'success';
+            showToast(data.message, type);
+        }
+    }
+
+    // Connect on page load
+    connectSSE();
 </script>
 {% endblock %}

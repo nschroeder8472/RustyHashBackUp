@@ -188,5 +188,41 @@
             });
         }
     </script>
+
+    <!-- Sidebar Status Updater -->
+    <script>
+        function updateSidebarStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('sidebar-status');
+                    if (!container) return;
+
+                    const statusText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+                    const isRunning = data.status === 'running';
+                    const color = isRunning ? 'blue' : (data.status === 'failed' ? 'red' : 'green');
+                    const bgClass = isRunning ? 'status-info' : (data.status === 'failed' ? 'status-error' : 'status-success');
+
+                    container.innerHTML = `
+                        <div class="${bgClass}">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-2 h-2 bg-${color}-500 rounded-full ${isRunning ? 'animate-pulse' : ''}"></div>
+                                <span class="text-sm text-${color}-400">${statusText}</span>
+                            </div>
+                            ${data.started_at ? `<p class="text-xs text-gray-400 mt-2">Last run: ${new Date(data.started_at).toLocaleString()}</p>` : ''}
+                        </div>
+                    `;
+                })
+                .catch(() => {
+                    // Silently fail - keep showing loading state
+                });
+        }
+
+        // Update status on page load and every 10 seconds
+        if (document.getElementById('sidebar-status')) {
+            updateSidebarStatus();
+            setInterval(updateSidebarStatus, 10000);
+        }
+    </script>
 </body>
 </html>

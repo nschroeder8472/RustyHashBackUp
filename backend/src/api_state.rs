@@ -36,6 +36,12 @@ pub struct AppState {
 
     /// Subscribers for progress events (SSE)
     progress_subscribers: Arc<Mutex<Vec<tokio::sync::broadcast::Sender<ProgressEvent>>>>,
+
+    /// Scheduler thread handle (None if not running)
+    scheduler_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
+
+    /// Atomic flag to signal scheduler should stop
+    scheduler_running: Arc<AtomicBool>,
 }
 
 /// Information about the current backup run
@@ -60,6 +66,8 @@ impl AppState {
             current_run: Arc::new(Mutex::new(None)),
             history: Arc::new(Mutex::new(VecDeque::new())),
             progress_subscribers: Arc::new(Mutex::new(Vec::new())),
+            scheduler_handle: Arc::new(Mutex::new(None)),
+            scheduler_running: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -307,6 +315,134 @@ impl AppState {
 
         let mut subscribers = self.progress_subscribers.lock().unwrap();
         subscribers.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    /// Start the scheduler with current configuration
+    pub fn start_scheduler(&self) -> Result<(), String> {
+        // Check if already running
+        if self.scheduler_running.load(Ordering::SeqCst) {
+            return Err("Scheduler is already running".to_string());
+        }
+
+        // Get current configuration
+        let config = self.get_config()
+            .ok_or_else(|| "No configuration set".to_string())?;
+
+        // Ensure schedule exists
+        let schedule_str = config.schedule.as_ref()
+            .ok_or_else(|| "No schedule configured".to_string())?;
+
+        // Validate cron expression before spawning thread
+        use cron::Schedule;
+        use std::str::FromStr;
+        Schedule::from_str(schedule_str)
+            .map_err(|e| format!("Invalid cron expression '{}': {}", schedule_str, e))?;
+
+        // Set running flag BEFORE spawning thread
+        self.scheduler_running.store(true, Ordering::SeqCst);
+
+        // Clone data for thread
+        let state_clone = self.clone();
+        let config_clone = config.clone();
+        let running_clone = self.scheduler_running.clone();
+
+        // Spawn scheduler thread
+        let handle = std::thread::spawn(move || {
+            if let Err(e) = crate::run_scheduler_thread(&config_clone, &state_clone, running_clone) {
+                log::error!("Scheduler thread error: {}", e);
+            }
+        });
+
+        // Store handle
+        *self.scheduler_handle.lock().unwrap() = Some(handle);
+
+        log::info!("Scheduler started with schedule: {}", schedule_str);
+        Ok(())
+    }
+
+    /// Stop the currently running scheduler gracefully
+    pub fn stop_scheduler(&self) -> Result<(), String> {
+        if !self.scheduler_running.load(Ordering::SeqCst) {
+            return Ok(()); // Already stopped
+        }
+
+        log::info!("Stopping scheduler...");
+
+        // Signal scheduler thread to stop
+        self.scheduler_running.store(false, Ordering::SeqCst);
+
+        // Take ownership of handle
+        let handle_opt = self.scheduler_handle.lock().unwrap().take();
+
+        if let Some(handle) = handle_opt {
+            // Wait for thread with timeout (10 seconds)
+            let timeout = std::time::Duration::from_secs(10);
+            let start = std::time::Instant::now();
+
+            while !handle.is_finished() {
+                if start.elapsed() > timeout {
+                    log::warn!("Scheduler stop timeout - abandoning handle");
+                    return Err("Scheduler stop timeout".to_string());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            // Join thread to clean up
+            if let Err(e) = handle.join() {
+                log::error!("Scheduler thread panicked: {:?}", e);
+                return Err("Scheduler thread panicked".to_string());
+            }
+        }
+
+        log::info!("Scheduler stopped successfully");
+        Ok(())
+    }
+
+    /// Restart the scheduler with current configuration
+    pub fn restart_scheduler(&self) -> Result<(), String> {
+        log::info!("Restarting scheduler...");
+
+        // Stop existing scheduler (ignore errors)
+        let _ = self.stop_scheduler();
+
+        // Small delay for thread cleanup
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Start new scheduler
+        self.start_scheduler()
+    }
+
+    /// Check if scheduler is currently running
+    pub fn is_scheduler_running(&self) -> bool {
+        self.scheduler_running.load(Ordering::SeqCst)
+    }
+
+    /// Get detailed scheduler status
+    pub fn get_scheduler_status(&self) -> crate::models::api::SchedulerStatus {
+        use cron::Schedule;
+        use std::str::FromStr;
+        use chrono::Utc;
+
+        let config = self.get_config();
+        let running = self.is_scheduler_running();
+        let schedule_str = config.as_ref().and_then(|c| c.schedule.clone());
+
+        // Calculate next run time if running
+        let next_run = if running {
+            schedule_str.as_ref().and_then(|s| {
+                Schedule::from_str(s).ok().and_then(|schedule| {
+                    schedule.upcoming(Utc).next().map(|dt| dt.to_rfc3339())
+                })
+            })
+        } else {
+            None
+        };
+
+        crate::models::api::SchedulerStatus {
+            running,
+            schedule: schedule_str,
+            next_run,
+        }
     }
 }
 

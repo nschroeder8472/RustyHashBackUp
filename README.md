@@ -24,7 +24,7 @@ A fast, reliable hash-based file backup utility written in Rust. Uses BLAKE2b512
 ### Build from source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/nschroeder8472/RustyHashBackUp.git
 cd RustyHashBackup
 cargo build --release
 ```
@@ -152,19 +152,19 @@ Add schedule to your `config.json`:
 
 ```json
 {
-  "schedule": "0 2 * * *",
+  "schedule": "0 0 2 * * *",
   "run_on_startup": true,
   ...
 }
 ```
 
-Cron format: `minute hour day month weekday`
+Cron format (6-field): `second minute hour day month weekday`
 
 Examples:
-- `"0 2 * * *"` - Daily at 2:00 AM
-- `"0 */4 * * *"` - Every 4 hours
-- `"0 0 * * 0"` - Weekly on Sunday at midnight
-- `"0 3 1 * *"` - Monthly on the 1st at 3:00 AM
+- `"0 0 2 * * *"` - Daily at 2:00 AM
+- `"0 0 */4 * * *"` - Every 4 hours
+- `"0 0 0 * * 0"` - Weekly on Sunday at midnight
+- `"0 0 3 1 * *"` - Monthly on the 1st at 3:00 AM
 
 Press Ctrl+C to stop the scheduler gracefully.
 
@@ -216,7 +216,7 @@ Press Ctrl+C to stop the scheduler gracefully.
 
 - Uses **BLAKE2b512** for cryptographic hashing
 - Streams files (no memory bloat)
-- Only reads up to max configured size of file for efficient hashing
+- Only reads up to `max_mebibytes_for_hash` MiB of each file for efficient hashing
 - Hexadecimal encoding for storage
 
 ### Database Schema

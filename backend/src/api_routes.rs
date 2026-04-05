@@ -18,33 +18,24 @@ use serde_json::json;
 #[get("/config", rank = 2)]
 pub fn get_config(state: &State<AppState>) -> Result<Json<ConfigResponse>, Status> {
     let config_file_path = state.get_config_file_path();
+    let scheduler_status = Some(state.get_scheduler_status());
+
     match state.get_config() {
         Some(config) => Ok(Json(ConfigResponse {
             success: true,
             message: "Configuration retrieved successfully".to_string(),
             config: Some(config),
             config_file_path,
+            scheduler_status,
         })),
         None => Ok(Json(ConfigResponse {
             success: false,
             message: "No configuration set".to_string(),
             config: None,
             config_file_path,
+            scheduler_status,
         })),
     }
-}
-
-/// GET /api/config/form - Get configuration form fields pre-populated (HTML)
-#[get("/config/form")]
-pub fn get_config_form(state: &State<AppState>) -> Template {
-    let config = state.get_config();
-
-    Template::render(
-        "partials/config_form_fields",
-        context! {
-            config,
-        },
-    )
 }
 
 /// POST /api/config - Set configuration (JSON)
@@ -60,13 +51,46 @@ pub fn set_config(
             message: format!("Invalid configuration: {}", e),
             config: None,
             config_file_path: state.get_config_file_path(),
+            scheduler_status: Some(state.get_scheduler_status()),
         }));
     }
+
+    // Get old config BEFORE setting new one (for schedule change detection)
+    let old_config = state.get_config();
+
+    // Set new config in state
+    state.set_config(config.0.clone());
 
     // Reinitialize database if path changed
     reinitialize_database(&config.0.database_file);
 
-    state.set_config(config.0.clone());
+    // Handle schedule changes (compare old vs new, use new from state)
+    if has_schedule_changed(&old_config, &config.0) {
+        log::info!("Schedule changed, managing scheduler...");
+
+        // Schedule removed - stop scheduler
+        if config.0.schedule.is_none() {
+            if state.is_scheduler_running() {
+                log::info!("Schedule removed - stopping scheduler");
+                if let Err(e) = state.stop_scheduler() {
+                    log::error!("Failed to stop scheduler: {}", e);
+                }
+            }
+        } else {
+            // Schedule added or modified - restart scheduler
+            if state.is_scheduler_running() {
+                log::info!("Schedule modified - restarting scheduler");
+                if let Err(e) = state.restart_scheduler() {
+                    log::error!("Failed to restart scheduler: {}", e);
+                }
+            } else {
+                log::info!("Schedule added - starting scheduler");
+                if let Err(e) = state.start_scheduler() {
+                    log::error!("Failed to start scheduler: {}", e);
+                }
+            }
+        }
+    }
 
     // Log configuration change
     let _ = sqlite::insert_log_entry(
@@ -75,48 +99,15 @@ pub fn set_config(
         Some("api_routes::set_config"),
     );
 
+    let scheduler_status = Some(state.get_scheduler_status());
+
     Ok(Json(ConfigResponse {
         success: true,
         message: "Configuration set successfully".to_string(),
         config: Some(config.0),
         config_file_path: state.get_config_file_path(),
+        scheduler_status,
     }))
-}
-
-/// POST /api/config/form - Set configuration (JSON, returns HTML)
-#[post("/config/form", format = "json", data = "<config>")]
-pub fn set_config_form(config: Json<Config>, state: &State<AppState>) -> Template {
-    // Validate configuration
-    if let Err(e) = crate::models::config_validator::validate_config(&config.0) {
-        return Template::render(
-            "partials/config_form_response",
-            context! {
-                success: false,
-                message: "Configuration validation failed",
-                details: e.to_string(),
-            },
-        );
-    }
-
-    // Reinitialize database if path changed
-    reinitialize_database(&config.0.database_file);
-
-    state.set_config(config.0.clone());
-
-    // Log configuration change
-    let _ = sqlite::insert_log_entry(
-        "INFO",
-        "Configuration updated via form",
-        Some("api_routes::set_config_form"),
-    );
-
-    Template::render(
-        "partials/config_form_response",
-        context! {
-            success: true,
-            message: "Configuration saved successfully",
-        },
-    )
 }
 
 /// POST /api/config/save - Save configuration to file
@@ -201,16 +192,44 @@ pub fn save_config_to_file(
         })));
     }
 
+    // Get old config BEFORE setting new one
+    let old_config = state.get_config();
+
     // Set config file path in state
     state.set_config_file_path(file_path.clone());
 
-    // Set config in state
-    state.set_config(config);
+    // Set new config in state
+    state.set_config(config.clone());
 
     // Reinitialize database with new config
-    if let Some(config) = state.get_config() {
-        reinitialize_database(&config.database_file);
+    reinitialize_database(&config.database_file);
+
+    // Handle schedule changes
+    if has_schedule_changed(&old_config, &config) {
+        log::info!("Schedule changed, managing scheduler...");
+
+        if config.schedule.is_none() {
+            if state.is_scheduler_running() {
+                log::info!("Schedule removed - stopping scheduler");
+                if let Err(e) = state.stop_scheduler() {
+                    log::error!("Failed to stop scheduler: {}", e);
+                }
+            }
+        } else {
+            if state.is_scheduler_running() {
+                log::info!("Schedule modified - restarting scheduler");
+                if let Err(e) = state.restart_scheduler() {
+                    log::error!("Failed to restart scheduler: {}", e);
+                }
+            } else {
+                log::info!("Schedule added - starting scheduler");
+                if let Err(e) = state.start_scheduler() {
+                    log::error!("Failed to start scheduler: {}", e);
+                }
+            }
+        }
     }
+    let scheduler_status = state.get_scheduler_status();
 
     // Log the save
     let _ = sqlite::insert_log_entry(
@@ -221,7 +240,8 @@ pub fn save_config_to_file(
 
     Ok(Json(json!({
         "success": true,
-        "message": format!("Configuration saved to {}", file_path)
+        "message": format!("Configuration saved to {}", file_path),
+        "scheduler_status": scheduler_status
     })))
 }
 
@@ -246,13 +266,47 @@ pub fn load_config_from_file(
         })));
     }
 
+    // Get old config BEFORE loading new one
+    let old_config = state.get_config();
+
     // Load config from file
     match state.load_config_from_file(file_path.clone()) {
         Ok(()) => {
+            let new_config = state.get_config();
+
             // Reinitialize database with new config
-            if let Some(config) = state.get_config() {
+            if let Some(config) = &new_config {
                 reinitialize_database(&config.database_file);
             }
+
+            // Handle schedule changes
+            if let Some(cfg) = &new_config {
+                if has_schedule_changed(&old_config, cfg) {
+                    log::info!("Schedule changed, managing scheduler...");
+
+                    if cfg.schedule.is_none() {
+                        if state.is_scheduler_running() {
+                            log::info!("Schedule removed - stopping scheduler");
+                            if let Err(e) = state.stop_scheduler() {
+                                log::error!("Failed to stop scheduler: {}", e);
+                            }
+                        }
+                    } else {
+                        if state.is_scheduler_running() {
+                            log::info!("Schedule modified - restarting scheduler");
+                            if let Err(e) = state.restart_scheduler() {
+                                log::error!("Failed to restart scheduler: {}", e);
+                            }
+                        } else {
+                            log::info!("Schedule added - starting scheduler");
+                            if let Err(e) = state.start_scheduler() {
+                                log::error!("Failed to start scheduler: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+            let scheduler_status = state.get_scheduler_status();
 
             // Log the load
             let _ = sqlite::insert_log_entry(
@@ -265,7 +319,8 @@ pub fn load_config_from_file(
                 "success": true,
                 "message": format!("Configuration loaded from {}", file_path),
                 "config": state.get_config(),
-                "config_file_path": state.get_config_file_path()
+                "config_file_path": state.get_config_file_path(),
+                "scheduler_status": scheduler_status
             })))
         }
         Err(e) => Ok(Json(json!({
@@ -314,6 +369,49 @@ fn reinitialize_database(db_path: &str) {
         log::error!("Failed to setup database schema: {}", e);
     } else {
         log::info!("Database initialized successfully");
+    }
+}
+
+/// Detect if schedule changed between configs
+fn has_schedule_changed(old_config: &Option<Config>, new_config: &Config) -> bool {
+    match old_config {
+        None => new_config.schedule.is_some(),
+        Some(old) => old.schedule != new_config.schedule,
+    }
+}
+
+/// Handle scheduler restart when schedule changes
+fn handle_schedule_change(state: &AppState, new_config: &Config) {
+    let old_config = state.get_config();
+
+    if !has_schedule_changed(&old_config, new_config) {
+        return; // No change
+    }
+
+    log::info!("Schedule changed, managing scheduler...");
+
+    // Schedule removed - stop scheduler
+    if new_config.schedule.is_none() {
+        if state.is_scheduler_running() {
+            log::info!("Schedule removed - stopping scheduler");
+            if let Err(e) = state.stop_scheduler() {
+                log::error!("Failed to stop scheduler: {}", e);
+            }
+        }
+        return;
+    }
+
+    // Schedule added or modified - restart scheduler
+    if state.is_scheduler_running() {
+        log::info!("Schedule modified - restarting scheduler");
+        if let Err(e) = state.restart_scheduler() {
+            log::error!("Failed to restart scheduler: {}", e);
+        }
+    } else {
+        log::info!("Schedule added - starting scheduler");
+        if let Err(e) = state.start_scheduler() {
+            log::error!("Failed to start scheduler: {}", e);
+        }
     }
 }
 
@@ -488,6 +586,8 @@ pub fn progress_events(state: &State<AppState>) -> EventStream![] {
 #[get("/validate")]
 pub fn validate_config_endpoint(state: &State<AppState>) -> Result<Json<ConfigResponse>, Status> {
     let config_file_path = state.get_config_file_path();
+    let scheduler_status = Some(state.get_scheduler_status());
+
     match state.get_config() {
         Some(config) => match crate::models::config_validator::validate_config(&config) {
             Ok(_) => Ok(Json(ConfigResponse {
@@ -495,12 +595,14 @@ pub fn validate_config_endpoint(state: &State<AppState>) -> Result<Json<ConfigRe
                 message: "Configuration is valid".to_string(),
                 config: Some(config),
                 config_file_path,
+                scheduler_status,
             })),
             Err(e) => Ok(Json(ConfigResponse {
                 success: false,
                 message: format!("Configuration validation failed: {}", e),
                 config: Some(config),
                 config_file_path,
+                scheduler_status,
             })),
         },
         None => Ok(Json(ConfigResponse {
@@ -508,6 +610,7 @@ pub fn validate_config_endpoint(state: &State<AppState>) -> Result<Json<ConfigRe
             message: "No configuration set".to_string(),
             config: None,
             config_file_path,
+            scheduler_status,
         })),
     }
 }
@@ -592,7 +695,7 @@ pub fn get_dashboard_metrics(state: &State<AppState>) -> Template {
     let source_count = config.as_ref().map(|c| c.backup_sources.len()).unwrap_or(0);
     let source_directories = json!({
         "count": source_count.to_string(),
-        "size": format!("{} files", total_source_files)
+        "subtitle": if source_count > 0 { "Configured for backup" } else { "None configured" }
     });
 
     // Backup destinations from config
@@ -725,27 +828,14 @@ pub fn clear_logs() -> Json<serde_json::Value> {
 /// GET /api/logs/stats - Get log statistics by level
 #[get("/logs/stats")]
 pub fn get_log_stats() -> Template {
-    // Query database for log counts by level
-    let error_count = sqlite::query_logs(Some("ERROR"), None, None, None, None)
-        .map(|logs| logs.len())
-        .unwrap_or(0);
+    // Query database for log counts by level (single optimized query)
+    let counts = sqlite::count_logs_by_level().unwrap_or_default();
 
-    let warn_count = sqlite::query_logs(Some("WARN"), None, None, None, None)
-        .map(|logs| logs.len())
-        .unwrap_or(0);
-
-    let info_count = sqlite::query_logs(Some("INFO"), None, None, None, None)
-        .map(|logs| logs.len())
-        .unwrap_or(0);
-
-    let debug_count = sqlite::query_logs(Some("DEBUG"), None, None, None, None)
-        .map(|logs| logs.len())
-        .unwrap_or(0);
-
-    let trace_count = sqlite::query_logs(Some("TRACE"), None, None, None, None)
-        .map(|logs| logs.len())
-        .unwrap_or(0);
-
+    let error_count = counts.get("ERROR").copied().unwrap_or(0);
+    let warn_count = counts.get("WARN").copied().unwrap_or(0);
+    let info_count = counts.get("INFO").copied().unwrap_or(0);
+    let debug_count = counts.get("DEBUG").copied().unwrap_or(0);
+    let trace_count = counts.get("TRACE").copied().unwrap_or(0);
     let total_count = error_count + warn_count + info_count + debug_count + trace_count;
 
     Template::render(

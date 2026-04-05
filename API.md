@@ -6,15 +6,15 @@ The RustyHashBackup application has been converted to support both CLI and API m
 
 ## Running the Application
 
-### API Mode (Default)
+### API Mode
 ```bash
-cargo run
+cargo run -- --api
 ```
 
-The API server will start on `http://localhost:8000` by default.
+The API server will start on `http://localhost:8000`.
 
-### CLI Mode (Legacy)
-The CLI functionality is still available for backwards compatibility.
+### CLI Mode (Default)
+CLI mode runs by default when no `--api` flag is provided.
 
 ```bash
 # Build and run with custom config

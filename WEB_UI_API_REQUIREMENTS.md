@@ -10,15 +10,26 @@ The web UI has been implemented with static/mock data. To make it fully function
 
 These endpoints already exist and are functional:
 
-- `GET /api/config` - Get current configuration
-- `POST /api/config` - Update configuration (needs to accept form data from UI)
+- `GET /api/config` - Get current configuration (JSON)
+- `GET /api/config/form` - Get configuration form fields pre-populated (HTML)
+- `POST /api/config` - Update configuration (JSON)
+- `POST /api/config/form` - Update configuration (JSON, returns HTML)
+- `POST /api/config/save` - Save configuration to file
+- `POST /api/config/load` - Load configuration from file
 - `GET /api/status` - Get backup status
-- `POST /api/backup/start` - Start a backup operation
-- `POST /api/backup/stop` - Stop current backup
+- `POST /api/start` - Start a backup operation
+- `POST /api/stop` - Stop current backup
 - `GET /api/events` - SSE stream for backup progress
+- `GET /api/progress` - Get current backup progress (JSON)
 - `GET /api/history` - Get backup history
-- `POST /api/validate-config` - Validate configuration
+- `GET /api/validate` - Validate current configuration
 - `GET /api/health` - Health check endpoint
+- `GET /api/dashboard/metrics` - Dashboard metrics (HTML)
+- `GET /api/storage/overview` - Storage overview (HTML)
+- `GET /api/logs` - Get logs with optional filters (HTML)
+- `GET /api/logs/recent` - Get recent logs (HTML)
+- `GET /api/logs/stats` - Get log statistics by level (HTML)
+- `POST /api/logs/clear` - Clear log history
 
 ## Missing API Endpoints
 

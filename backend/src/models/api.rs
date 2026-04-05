@@ -119,6 +119,23 @@ pub struct ConfigResponse {
     pub message: String,
     pub config: Option<crate::models::config::Config>,
     pub config_file_path: Option<String>,
+
+    /// Scheduler status (omitted from JSON if None)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduler_status: Option<SchedulerStatus>,
+}
+
+/// Scheduler status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerStatus {
+    /// Whether scheduler is currently running
+    pub running: bool,
+
+    /// Cron schedule expression (None if no schedule configured)
+    pub schedule: Option<String>,
+
+    /// Next scheduled run time in ISO 8601 format (None if not running)
+    pub next_run: Option<String>,
 }
 
 /// Backup history entry

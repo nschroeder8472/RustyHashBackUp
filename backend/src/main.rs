@@ -20,6 +20,8 @@ use models::config::Config;
 use repo::sqlite::setup_database;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 #[macro_use]
 extern crate rocket;
@@ -105,9 +107,7 @@ fn build_rocket(args: Cli) -> rocket::Rocket<rocket::Build> {
             "/api",
             routes![
                 api_routes::get_config,
-                api_routes::get_config_form,
                 api_routes::set_config,
-                api_routes::set_config_form,
                 api_routes::save_config_to_file,
                 api_routes::load_config_from_file,
                 api_routes::get_status,
@@ -139,7 +139,31 @@ async fn main() -> Result<()> {
     let args = Cli::parse();
 
     if args.api_mode {
-        build_rocket(args).launch().await?;
+        let rocket = build_rocket(args);
+
+        // Start scheduler if schedule is configured
+        if let Some(app_state) = rocket.state::<AppState>() {
+            if let Some(cfg) = app_state.get_config() {
+                if cfg.schedule.is_some() {
+                    info!("Starting scheduler for API mode");
+                    if let Err(e) = app_state.start_scheduler() {
+                        warn!("Failed to start scheduler: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Shutdown handler for scheduler
+        let shutdown_state = rocket.state::<AppState>().unwrap().clone();
+        rocket::tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            log::info!("Shutdown signal received");
+            if let Err(e) = shutdown_state.stop_scheduler() {
+                log::error!("Failed to stop scheduler: {}", e);
+            }
+        });
+
+        rocket.launch().await?;
         Ok(())
     } else {
         cli_main(args)
@@ -409,6 +433,76 @@ fn run_scheduled(config: &Config, dry_run_mode: DryRunMode, quiet: bool) -> Resu
     }
 
     info!("Scheduler stopped");
+    Ok(())
+}
+
+/// Scheduler thread function - checks running flag for graceful shutdown
+pub fn run_scheduler_thread(
+    config: &Config,
+    state: &AppState,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    use chrono::Utc;
+    use cron::Schedule;
+    use std::str::FromStr;
+    use std::sync::atomic::Ordering;
+
+    let schedule_str = config.schedule.as_ref().unwrap();
+    let schedule = Schedule::from_str(schedule_str)
+        .context("Invalid cron expression")?;
+
+    info!("Scheduler thread started with schedule: {}", schedule_str);
+
+    // Run on startup if configured and still running
+    if config.run_on_startup && running.load(Ordering::SeqCst) {
+        info!("Running initial backup on startup...");
+        if let Err(e) = run_backup(config, DryRunMode::None, true, Some(state)) {
+            warn!("Initial backup failed: {}", e);
+        }
+    }
+
+    // Main scheduler loop - exits when running flag is false
+    while running.load(Ordering::SeqCst) {
+        let now = Utc::now();
+
+        if let Some(next) = schedule.upcoming(Utc).take(1).next() {
+            let duration_until_next = (next - now)
+                .to_std()
+                .unwrap_or(std::time::Duration::from_secs(0));
+
+            info!(
+                "Next scheduled backup: {} (in {} seconds)",
+                next.format("%Y-%m-%d %H:%M:%S %Z"),
+                duration_until_next.as_secs()
+            );
+
+            // Sleep in 1-second increments to check running flag
+            let mut elapsed = std::time::Duration::from_secs(0);
+            while elapsed < duration_until_next && running.load(Ordering::SeqCst) {
+                let sleep_duration = std::cmp::min(
+                    duration_until_next - elapsed,
+                    std::time::Duration::from_secs(1),
+                );
+                std::thread::sleep(sleep_duration);
+                elapsed += sleep_duration;
+            }
+
+            // Run backup if still running and time reached
+            if Utc::now() >= next && running.load(Ordering::SeqCst) {
+                info!("Running scheduled backup...");
+                if let Err(e) = run_backup(config, DryRunMode::None, true, Some(state)) {
+                    warn!("Scheduled backup failed: {}", e);
+                }
+            } else if !running.load(Ordering::SeqCst) {
+                info!("Scheduler stop requested - cancelling backup");
+            }
+        } else {
+            warn!("No upcoming scheduled times found");
+            break;
+        }
+    }
+
+    info!("Scheduler thread exiting gracefully");
     Ok(())
 }
 
